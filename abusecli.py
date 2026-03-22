@@ -12,6 +12,13 @@ from tqdm import tqdm
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+console = Console()
+
 
 __version__ = 1.0
 
@@ -208,8 +215,99 @@ def print_warning(message):
     print(f"\033[93m[!]\033[0m {message}")
 
 
+RISK_COLORS = {
+    "critical": "red",
+    "high": "dark_orange",
+    "medium": "yellow",
+    "low": "green",
+}
+
+
+def build_score_bar(score, width=15):
+    """Build a colored progress bar string for an abuse confidence score"""
+    filled = round(score / 100 * width)
+    empty = width - filled
+
+    if score >= RISK_CRITICAL_MIN:
+        color = "red"
+    elif score >= RISK_HIGH_MIN:
+        color = "dark_orange"
+    elif score >= RISK_MEDIUM_MIN:
+        color = "yellow"
+    else:
+        color = "green"
+
+    bar = Text()
+    bar.append("█" * filled, style=color)
+    bar.append("░" * empty, style="dim")
+    bar.append(f" {score}%", style=f"bold {color}")
+    return bar
+
+
+def display_results(df):
+    """Display results as a rich colored table with a summary panel"""
+    table = Table(
+        title="IP Analysis Results",
+        show_lines=True,
+        header_style="bold cyan",
+        border_style="dim",
+    )
+
+    table.add_column("IP Address", style="bold white", no_wrap=True)
+    table.add_column("Risk", justify="center")
+    table.add_column("Score", justify="center", min_width=20)
+    table.add_column("Country", justify="center")
+    table.add_column("Whitelisted", justify="center")
+    table.add_column("TOR", justify="center")
+    table.add_column("Public", justify="center")
+
+    for _, row in df.iterrows():
+        risk = str(row.get("risk_level", "N/A"))
+        risk_color = RISK_COLORS.get(risk, "white")
+        score = int(row.get("abuseConfidenceScore", 0))
+
+        table.add_row(
+            str(row.get("ipAddress", "N/A")),
+            Text(risk.upper(), style=f"bold {risk_color}"),
+            build_score_bar(score),
+            str(row.get("countryCode", "N/A")),
+            "Yes" if row.get("isWhitelisted") else "No",
+            Text("Yes", style="bold red") if row.get("isTor") else Text("No"),
+            "Yes" if row.get("isPublic") else Text("No", style="dim"),
+        )
+
+    console.print()
+    console.print(table)
+
+    # Summary panel
+    total = len(df)
+    risk_counts = df["risk_level"].value_counts() if "risk_level" in df.columns else pd.Series()
+
+    summary_lines = [f"[bold]Total IPs:[/bold]  {total}"]
+
+    for level in ["critical", "high", "medium", "low"]:
+        count = risk_counts.get(level, 0)
+        color = RISK_COLORS.get(level, "white")
+        bar_width = round(count / total * 20) if total > 0 else 0
+        bar = "█" * bar_width + "░" * (20 - bar_width)
+        summary_lines.append(f"[{color}]{level.capitalize():10s}[/{color}]  {count:>3d}  [{color}]{bar}[/{color}]")
+
+    if "countryCode" in df.columns:
+        unique_countries = df["countryCode"].nunique()
+        summary_lines.append(f"[bold]Countries:[/bold]  {unique_countries}")
+
+    if "isTor" in df.columns:
+        tor_count = df["isTor"].sum()
+        if tor_count > 0:
+            summary_lines.append(f"[bold red]TOR nodes:[/bold red] {tor_count}")
+
+    console.print()
+    console.print(Panel("\n".join(summary_lines), title="Summary", border_style="cyan", expand=False))
+    console.print()
+
+
 ###########################################################################
-## DISPLAY ################################################################
+## API RESPONSE HANDLING ##################################################
 ###########################################################################
 
 
@@ -933,24 +1031,24 @@ def main():
 
     args = parser.parse_args()
 
-    try:
-        api_key = load_api_key(args=args)
-    except KeyboardInterrupt:
-        print_error("\nOperation aborted by user...")
-        return
-    except Exception as e:
-        print_error(f"Error occured while loading API key: {e}")
-        return
-
     if args.command == "check":
+        try:
+            api_key = load_api_key(args=args)
+        except KeyboardInterrupt:
+            print_error("\nOperation aborted by user...")
+            return
+        except Exception as e:
+            print_error(f"Error occured while loading API key: {e}")
+            return
+
         ip_df = process_ip_addresses(args=args, api_key=api_key)
-        if not ip_df.empty: 
-            print(ip_df.to_string(index=True))
-    
+        if ip_df is not None and not ip_df.empty:
+            display_results(ip_df)
+
     elif args.command == "load":
         ip_df = process_loaded_data(args)
-        if not ip_df.empty: 
-            print(ip_df.to_string(index=True))
+        if ip_df is not None and not ip_df.empty:
+            display_results(ip_df)
 
     else:
         parser.print_help()
