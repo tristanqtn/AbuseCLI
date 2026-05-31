@@ -1,0 +1,20 @@
+[project]
+name = "abusecli"
+version = "0.1.0"
+description = "A clean CLI tool for interacting with AbuseIPDB API"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "rich>=13.0.0",
+    "tqdm>=4.65.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.15",
+]
