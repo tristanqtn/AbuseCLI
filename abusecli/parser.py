@@ -185,7 +185,7 @@ def _build_check_parser(subparsers) -> None:
     g.add_argument(
         "--from-file",
         metavar="FILE",
-        help="plain-text file with one IP per line (# lines ignored)",
+        help="plain-text file with one IP per line (# lines ignored), or - for stdin",
     )
     g.add_argument(
         "--max-age",
@@ -208,8 +208,11 @@ def _build_report_parser(subparsers) -> None:
             report — submit abuse reports to AbuseIPDB
             ───────────────────────────────────────────
             Reports one or more IPs with one or more category codes.
-            IPs can be given directly via --ips or loaded from a previous
-            check/load export via --source (CSV, JSON, Excel, Parquet).
+            IPs can be given directly via --ips, read from a plain-text file
+            via --from-file (one IP per line, # comments ignored, - for stdin),
+            or loaded from a previous check/load export via --source
+            (CSV, JSON, Excel, Parquet). --ips and --from-file can be combined;
+            --source is exclusive with both.
 
             When using --source, use --min-score to avoid accidentally
             reporting low-confidence IPs. A confirmation table is always
@@ -226,6 +229,8 @@ def _build_report_parser(subparsers) -> None:
             examples:
               abusecli.py report --ips 1.2.3.4 --categories 18
               abusecli.py report --ips 1.2.3.4 --categories 18 22 --comment "SSH scan"
+              abusecli.py report --from-file blocklist.txt --categories 18 22
+              abusecli.py report --from-file - --categories 18          (stdin)
               abusecli.py report --ips 1.2.3.4 5.6.7.8 --categories 18 22 --verbose
               abusecli.py report --source results.csv --categories 18 22
               abusecli.py report --source results.csv --min-score 75 --categories 18
@@ -235,17 +240,21 @@ def _build_report_parser(subparsers) -> None:
     )
 
     g = p.add_argument_group("input")
-    g_ex = g.add_mutually_exclusive_group(required=True)
-    g_ex.add_argument(
+    g.add_argument(
         "--ips",
         nargs="+",
         metavar="IP",
         help="one or more IP addresses to report",
     )
-    g_ex.add_argument(
+    g.add_argument(
+        "--from-file",
+        metavar="FILE",
+        help="plain-text file with one IP per line (# lines ignored), or - for stdin",
+    )
+    g.add_argument(
         "--source", "-s",
         metavar="FILE",
-        help="load IPs from a previous check/load export (CSV, JSON, Excel, Parquet)",
+        help="load IPs from a previous check/load export (CSV, JSON, Excel, Parquet) — exclusive with --ips/--from-file",
     )
     g.add_argument(
         "--format", "-f",

@@ -51,11 +51,22 @@ def _run_export(df: pd.DataFrame, args, base: str) -> None:
 
 def _load_ips_from_file(path: str) -> list[str]:
     try:
-        lines = Path(path).read_text().splitlines()
-        ips = [line.strip() for line in lines if line.strip() and not line.startswith("#")]
+        if path == "-":
+            lines = sys.stdin.read().splitlines()
+        else:
+            lines = Path(path).read_text().splitlines()
+        ips = []
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            ip = line.split("#")[0].strip()
+            if ip:
+                ips.append(ip)
         return ips
     except Exception as e:
-        print_error(f"Could not read IP file {path}: {e}")
+        label = "stdin" if path == "-" else path
+        print_error(f"Could not read IP file {label}: {e}")
         return []
 
 
@@ -181,7 +192,19 @@ def cmd_report(args, api_key: str) -> None:
         if df is None:
             return
     else:
-        ips = list(args.ips)
+        ips = list(getattr(args, "ips", None) or [])
+        from_file = getattr(args, "from_file", None)
+        if from_file:
+            file_ips = _load_ips_from_file(from_file)
+            label = "stdin" if from_file == "-" else from_file
+            if not file_ips:
+                print_error(f"No valid IPs found in {label}")
+                if not ips:
+                    return
+            else:
+                if verbose:
+                    print_info(f"Loaded {len(file_ips)} IP(s) from {label}")
+                ips = list(dict.fromkeys(ips + file_ips))
         df = pd.DataFrame({"ipAddress": ips})
 
     if df.empty:

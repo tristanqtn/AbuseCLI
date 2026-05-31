@@ -34,6 +34,18 @@ def main() -> None:
         cmd_check(args, api_key)
 
     elif args.command == "report":
+        has_ips = getattr(args, "ips", None)
+        has_file = getattr(args, "from_file", None)
+        has_source = getattr(args, "source", None)
+
+        if not has_ips and not has_file and not has_source:
+            print_error("report requires --ips, --from-file, or --source")
+            return
+
+        if has_source and (has_ips or has_file):
+            print_error("--source cannot be combined with --ips or --from-file")
+            return
+
         try:
             api_key = load_api_key(args)
         except KeyboardInterrupt:
