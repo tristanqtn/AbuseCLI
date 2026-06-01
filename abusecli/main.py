@@ -8,7 +8,7 @@ from typing import Annotated
 from .auth import load_api_key
 from .commands import cmd_check, cmd_report, cmd_load, cmd_categories
 from .constants import DEFAULT_MAX_AGE_IN_DAYS
-from .display import print_error
+from .display import print_banner, print_error
 
 
 class RiskLevel(str, Enum):
@@ -43,6 +43,23 @@ app = typer.Typer(
 )
 
 
+@app.callback()
+def _app_callback() -> None:
+    print_banner()
+
+
+def _parse_ips(ips: Optional[list[str]]) -> list[str]:
+    if not ips:
+        return []
+    result = []
+    for entry in ips:
+        for ip in entry.replace(",", " ").split():
+            ip = ip.strip()
+            if ip:
+                result.append(ip)
+    return result
+
+
 def _resolve_api_key(token: Optional[str], verbose: bool) -> str:
     try:
         return load_api_key(SimpleNamespace(token=token, verbose=verbose))
@@ -61,7 +78,9 @@ def check(
     ips: Annotated[
         Optional[list[str]],
         typer.Option(
-            "--ips", metavar="IP", help="IP address to check. Repeat for multiple."
+            "--ips",
+            metavar="IP",
+            help="IP address(es) to check. Repeat or comma-separate for multiple.",
         ),
     ] = None,
     from_file: Annotated[
@@ -153,7 +172,7 @@ def check(
     api_key = _resolve_api_key(token, verbose)
 
     args = SimpleNamespace(
-        ips=ips,
+        ips=_parse_ips(ips),
         from_file=from_file,
         max_age=max_age,
         risk_level=risk_level.value if risk_level else None,
@@ -174,7 +193,9 @@ def report(
     ips: Annotated[
         Optional[list[str]],
         typer.Option(
-            "--ips", metavar="IP", help="IP address to report. Repeat for multiple."
+            "--ips",
+            metavar="IP",
+            help="IP address(es) to report. Repeat or comma-separate for multiple.",
         ),
     ] = None,
     from_file: Annotated[
@@ -268,7 +289,7 @@ def report(
     api_key = _resolve_api_key(token, verbose)
 
     args = SimpleNamespace(
-        ips=ips,
+        ips=_parse_ips(ips),
         from_file=from_file,
         source=source,
         format=file_format.value,

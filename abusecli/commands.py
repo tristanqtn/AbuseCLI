@@ -94,7 +94,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     verbose = getattr(args, "verbose", False)
     max_age = getattr(args, "max_age", DEFAULT_MAX_AGE_IN_DAYS)
 
-    ips = list(getattr(args, "ips", None) or [])
+    ips = list(dict.fromkeys(getattr(args, "ips", None) or []))
 
     from_file = getattr(args, "from_file", None)
     if from_file:
@@ -211,7 +211,7 @@ def cmd_report(args, api_key: str) -> None:
         if df is None:
             return
     else:
-        ips = list(getattr(args, "ips", None) or [])
+        ips = list(dict.fromkeys(getattr(args, "ips", None) or []))
         from_file = getattr(args, "from_file", None)
         if from_file:
             file_ips = _load_ips_from_file(from_file)

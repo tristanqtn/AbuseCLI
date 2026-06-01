@@ -1,6 +1,7 @@
 import pandas as pd
 
 from rich.console import Console
+from rich.rule import Rule
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
@@ -8,6 +9,12 @@ from rich.text import Text
 from .constants import RISK_COLORS, RISK_CRITICAL_MIN, RISK_HIGH_MIN, RISK_MEDIUM_MIN
 
 console = Console()
+
+
+def print_banner() -> None:
+    console.print(
+        Rule("[bold cyan]AbuseCLI[/bold cyan] - [dim]AbuseIPDB v2[/dim]", style="dim cyan")
+    )
 
 
 def _status(prefix: str, style: str, message: str) -> None:
