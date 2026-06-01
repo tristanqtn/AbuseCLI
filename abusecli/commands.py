@@ -13,7 +13,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .api import check_ip, format_reset_time, get_blacklist, get_rate_limits, report_ip
+from .api import check_block, check_ip, format_reset_time, get_blacklist, get_rate_limits, report_ip
 from .cache import (
     clean_cache,
     clear_cache,
@@ -97,36 +97,61 @@ def _load_ips_from_file(path: str) -> list[str]:
         return []
 
 
-def _expand_and_validate_ips(entries: list[str]) -> tuple[list[str], list[str]]:
-    valid: list[str] = []
+def _parse_ip_entries(entries: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """Validate and separate entries into (plain_ips, cidr_blocks, invalid)."""
+    plain_ips: list[str] = []
+    cidr_blocks: list[str] = []
     invalid: list[str] = []
 
     for entry in entries:
         if "/" in entry:
             try:
                 network = ipaddress.ip_network(entry, strict=False)
-                if network.num_addresses > MAX_CIDR_EXPANSION:
-                    print_error(
-                        f"{entry} expands to {network.num_addresses:,} addresses"
-                        f" — exceeds limit of {MAX_CIDR_EXPANSION:,}, skipped"
-                    )
-                    invalid.append(entry)
-                    continue
-                hosts = [str(ip) for ip in network.hosts()] or [str(network.network_address)]
                 canonical = str(network)
-                label = f" (interpreted as {canonical})" if canonical != entry else ""
-                print_info(f"CIDR {entry}{label} -> {len(hosts)} IP(s)")
-                valid.extend(hosts)
+                if canonical != entry:
+                    print_info(f"CIDR {entry} interpreted as {canonical}")
+                cidr_blocks.append(canonical)
             except ValueError:
                 invalid.append(entry)
         else:
             try:
                 ipaddress.ip_address(entry)
-                valid.append(entry)
+                plain_ips.append(entry)
             except ValueError:
                 invalid.append(entry)
 
-    return valid, invalid
+    return plain_ips, cidr_blocks, invalid
+
+
+def _expand_cidrs(cidrs: list[str]) -> list[str]:
+    """Expand CIDR blocks to individual IPs (for reporting). Skips blocks exceeding MAX_CIDR_EXPANSION."""
+    result: list[str] = []
+    for cidr in cidrs:
+        try:
+            network = ipaddress.ip_network(cidr, strict=False)
+            if network.num_addresses > MAX_CIDR_EXPANSION:
+                print_error(
+                    f"{cidr} expands to {network.num_addresses:,} addresses"
+                    f" — exceeds limit of {MAX_CIDR_EXPANSION:,}, skipped"
+                )
+                continue
+            hosts = [str(ip) for ip in network.hosts()] or [str(network.network_address)]
+            print_info(f"CIDR {cidr} -> {len(hosts)} IP(s)")
+            result.extend(hosts)
+        except ValueError:
+            pass
+    return result
+
+
+def _normalize_block_row(raw: dict) -> dict:
+    """Normalize a check-block reportedAddress entry to match check_ip field names."""
+    return {
+        "ipAddress": raw.get("ipAddress"),
+        "abuseConfidenceScore": raw.get("abuseConfidenceScore", 0),
+        "countryCode": raw.get("countryCode"),
+        "totalReports": raw.get("numReports", 0),
+        "lastReportedAt": raw.get("mostRecentReport"),
+    }
 
 
 def _show_rate_limit(endpoint: str, verbose: bool = False) -> None:
@@ -139,7 +164,9 @@ def _show_rate_limit(endpoint: str, verbose: bool = False) -> None:
     reset_str = f" — resets in {format_reset_time(reset)}" if reset else ""
     ratio = remaining / limit if limit > 0 else 1.0
     if ratio <= RATE_LIMIT_WARNING_THRESHOLD:
-        print_warning(f"Rate limit ({endpoint}): {remaining}/{limit} remaining{reset_str}")
+        print_warning(
+            f"Rate limit ({endpoint}): {remaining}/{limit} remaining{reset_str}"
+        )
     elif verbose:
         print_info(f"Rate limit ({endpoint}): {remaining}/{limit} remaining{reset_str}")
 
@@ -163,42 +190,43 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     no_cache = getattr(args, "no_cache", False)
 
     raw_ips = list(getattr(args, "ips", None) or [])
-    ips = list(dict.fromkeys(raw_ips))
+    entries = list(dict.fromkeys(raw_ips))
 
     from_file = getattr(args, "from_file", None)
     if from_file:
         file_ips = _load_ips_from_file(from_file)
         if not file_ips:
             print_error(f"No valid IPs found in {from_file}")
-            if not ips:
+            if not entries:
                 return None
         else:
             if verbose:
                 print_info(f"Loaded {len(file_ips)} IP(s) from {from_file}")
-            ips = list(dict.fromkeys(ips + file_ips))
+            entries = list(dict.fromkeys(entries + file_ips))
 
-    ips, invalid = _expand_and_validate_ips(ips)
+    plain_ips, cidr_blocks, invalid = _parse_ip_entries(entries)
     if invalid:
         shown = ", ".join(invalid[:5])
         suffix = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
-        print_error(f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}")
-    ips = list(dict.fromkeys(ips))
+        print_error(
+            f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}"
+        )
+    plain_ips = list(dict.fromkeys(plain_ips))
+    cidr_blocks = list(dict.fromkeys(cidr_blocks))
 
-    if not ips:
-        print_error("No valid IP addresses to check")
+    if not plain_ips and not cidr_blocks:
+        print_error("No valid IP addresses or CIDR blocks to check")
         return None
 
     if verbose:
-        deduped = len(raw_ips) - len(ips)
-        if deduped:
-            print_info(
-                f"Deduplicated: {len(raw_ips)} → {len(ips)} unique IPs ({deduped} removed)"
-            )
         if no_cache:
             print_info("Cache disabled (--no-cache)")
         else:
             print_info(f"Cache: {CACHE_PATH}  TTL: {cache_ttl}h")
-        print_info(f"Checking {len(ips)} IP(s)  maxAgeInDays={max_age}")
+        if plain_ips:
+            print_info(f"Checking {len(plain_ips)} IP(s)  maxAgeInDays={max_age}")
+        if cidr_blocks:
+            print_info(f"Checking {len(cidr_blocks)} CIDR block(s) via check-block API  maxAgeInDays={max_age}")
 
     results = []
     reports_by_ip: dict[str, list] = {}
@@ -206,6 +234,8 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     error_count = 0
     cached_count = 0
     rate_limit_warned = False
+
+    total_tasks = len(plain_ips) + len(cidr_blocks)
 
     with Progress(
         SpinnerColumn(),
@@ -220,13 +250,15 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Checking IPs", total=len(ips), ok=0, err=0, cached=0)
-        for ip in ips:
+        task = progress.add_task("Checking IPs", total=total_tasks, ok=0, err=0, cached=0)
+
+        # ── Plain IPs ─────────────────────────────────────────────────────────
+        for ip in plain_ips:
             progress.update(task, description=ip)
 
             if not no_cache:
                 cached_data = get_cached(ip, ttl_hours=cache_ttl)
-                if cached_data is not None:
+                if cached_data is not None and not cached_data.get("_block"):
                     ip_reports = cached_data.get("reports", [])
                     if ip_reports:
                         reports_by_ip[ip] = ip_reports
@@ -234,13 +266,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                     results.append(row)
                     cached_count += 1
                     success_count += 1
-                    progress.update(
-                        task,
-                        advance=1,
-                        ok=success_count,
-                        err=error_count,
-                        cached=cached_count,
-                    )
+                    progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
                     continue
 
             try:
@@ -278,16 +304,72 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                 if verbose:
                     print_error(f"Error checking {ip}: {e}")
 
-            progress.update(
-                task, advance=1, ok=success_count, err=error_count, cached=cached_count
-            )
+            progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
+
+        # ── CIDR blocks ───────────────────────────────────────────────────────
+        for cidr in cidr_blocks:
+            progress.update(task, description=cidr)
+
+            if not no_cache:
+                cached_data = get_cached(cidr, ttl_hours=cache_ttl)
+                if cached_data is not None and cached_data.get("_block"):
+                    for row in cached_data.get("rows", []):
+                        results.append(row)
+                    cached_count += 1
+                    success_count += 1
+                    progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
+                    continue
+
+            try:
+                response = check_block(
+                    network=cidr,
+                    api_key=api_key,
+                    max_age_in_days=max_age,
+                    verbose=verbose,
+                )
+                data = response.get("data") if response else None
+
+                if data:
+                    reported = data.get("reportedAddress", [])
+                    normalized_rows = [_normalize_block_row(r) for r in reported]
+
+                    if verbose:
+                        num_hosts = data.get("numPossibleHosts", "?")
+                        desc = data.get("addressSpaceDesc", "")
+                        desc_str = f"  [{desc}]" if desc else ""
+                        print_info(f"Block {cidr}: {num_hosts} possible hosts, {len(normalized_rows)} with reports{desc_str}")
+
+                    for row in normalized_rows:
+                        results.append(row)
+                    success_count += 1
+
+                    if not no_cache:
+                        set_cached(cidr, {"_block": True, "network": cidr, "rows": normalized_rows})
+
+                    if not rate_limit_warned:
+                        rl = get_rate_limits().get("check-block", {})
+                        remaining = rl.get("remaining")
+                        limit = rl.get("limit", 1)
+                        if remaining is not None and limit > 0 and remaining / limit <= RATE_LIMIT_WARNING_THRESHOLD:
+                            rate_limit_warned = True
+                            reset = rl.get("reset")
+                            reset_str = f" — resets in {format_reset_time(reset)}" if reset else ""
+                            print_warning(f"Rate limit low (check-block): {remaining}/{limit} remaining{reset_str}")
+                else:
+                    error_count += 1
+
+            except Exception as e:
+                error_count += 1
+                if verbose:
+                    print_error(f"Error checking block {cidr}: {e}")
+
+            progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
 
     if verbose:
         api_calls = success_count - cached_count
-        print_info(
-            f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache"
-        )
+        print_info(f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache")
     _show_rate_limit("check", verbose)
+    _show_rate_limit("check-block", verbose)
 
     if not results:
         print_error("No valid data retrieved")
@@ -353,12 +435,17 @@ def cmd_report(args, api_key: str) -> None:
                     print_info(f"Loaded {len(file_ips)} IP(s) from {label}")
                 ips = list(dict.fromkeys(ips + file_ips))
 
-        ips, invalid = _expand_and_validate_ips(ips)
+        plain_ips, cidr_blocks, invalid = _parse_ip_entries(ips)
         if invalid:
             shown = ", ".join(invalid[:5])
             suffix = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
-            print_error(f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}")
-        ips = list(dict.fromkeys(ips))
+            print_error(
+                f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}"
+            )
+        if cidr_blocks:
+            expanded = _expand_cidrs(cidr_blocks)
+            plain_ips = list(dict.fromkeys(plain_ips + expanded))
+        ips = plain_ips
 
         if not ips:
             print_error("No valid IP addresses to report")
@@ -564,7 +651,9 @@ def cmd_cache_show(
     if not entries:
         print_info(f"Cache is empty ({path})")
         return
-    display_cache_table(entries, ttl_hours=ttl_hours, search=search, expired_only=expired_only)
+    display_cache_table(
+        entries, ttl_hours=ttl_hours, search=search, expired_only=expired_only
+    )
 
 
 def cmd_cache_clear(yes: bool, path: Path) -> None:
@@ -574,9 +663,11 @@ def cmd_cache_clear(yes: bool, path: Path) -> None:
         return
     if not yes:
         try:
-            answer = input(
-                f"Delete all {len(entries)} cached IP(s) from {path}? [y/N] "
-            ).strip().lower()
+            answer = (
+                input(f"Delete all {len(entries)} cached IP(s) from {path}? [y/N] ")
+                .strip()
+                .lower()
+            )
         except KeyboardInterrupt:
             print_error("\nAborted.")
             return

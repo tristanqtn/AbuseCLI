@@ -52,7 +52,9 @@ def set_cached(ip: str, data: dict, path: Path = CACHE_PATH) -> None:
 
 def _is_expired(entry: dict, now: datetime, ttl_hours: int) -> bool:
     try:
-        return now - datetime.fromisoformat(entry["timestamp"]) >= timedelta(hours=ttl_hours)
+        return now - datetime.fromisoformat(entry["timestamp"]) >= timedelta(
+            hours=ttl_hours
+        )
     except Exception:
         return True
 

@@ -1,4 +1,5 @@
 ABUSEIPDB_BLACKLIST_URL = "https://api.abuseipdb.com/api/v2/blacklist"
+ABUSEIPDB_CHECK_BLOCK_URL = "https://api.abuseipdb.com/api/v2/check-block"
 ABUSEIPDB_CHECK_URL = "https://api.abuseipdb.com/api/v2/check"
 ABUSEIPDB_REPORT_URL = "https://api.abuseipdb.com/api/v2/report"
 

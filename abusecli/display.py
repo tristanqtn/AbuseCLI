@@ -107,7 +107,9 @@ def display_results(df: pd.DataFrame, verbose: bool = False) -> None:
         if has_whitelisted:
             cells.append("Yes" if row.get("isWhitelisted") else "No")
         if has_tor:
-            cells.append(Text("Yes", style="bold red") if row.get("isTor") else Text("No"))
+            cells.append(
+                Text("Yes", style="bold red") if row.get("isTor") else Text("No")
+            )
         if has_public:
             cells.append("Yes" if row.get("isPublic") else Text("No", style="dim"))
 
@@ -355,9 +357,13 @@ def display_cache_stats(stats: dict) -> None:
         f"[bold]File size:[/bold]  {size_str}",
     ]
     if stats["oldest"]:
-        lines.append(f"[bold]Oldest:[/bold]     {stats['oldest'].strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(
+            f"[bold]Oldest:[/bold]     {stats['oldest'].strftime('%Y-%m-%d %H:%M:%S')}"
+        )
     if stats["newest"]:
-        lines.append(f"[bold]Newest:[/bold]     {stats['newest'].strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(
+            f"[bold]Newest:[/bold]     {stats['newest'].strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
     console.print()
     console.print(
@@ -431,7 +437,11 @@ def display_cache_table(
         elif reports > 10:
             report_text.stylize("dark_orange")
 
-        status = Text("expired", style="dim red") if is_expired else Text("valid", style="green")
+        status = (
+            Text("expired", style="dim red")
+            if is_expired
+            else Text("valid", style="green")
+        )
 
         table.add_row(
             ip,

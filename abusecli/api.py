@@ -5,6 +5,7 @@ import requests
 
 from .constants import (
     ABUSEIPDB_BLACKLIST_URL,
+    ABUSEIPDB_CHECK_BLOCK_URL,
     ABUSEIPDB_CHECK_URL,
     ABUSEIPDB_REPORT_URL,
     DEFAULT_BLACKLIST_CONFIDENCE,
@@ -155,6 +156,28 @@ def check_ip(
         )
     except requests.exceptions.RequestException as e:
         print_error(f"Error querying {ip_address}: {e}")
+        return None
+
+
+def check_block(
+    network: str,
+    api_key: str,
+    max_age_in_days: int = 30,
+    verbose: bool = False,
+) -> dict | None:
+    headers = {"Key": api_key, "Accept": "application/json"}
+    params = {"network": network, "maxAgeInDays": max_age_in_days}
+
+    try:
+        response = requests.get(ABUSEIPDB_CHECK_BLOCK_URL, headers=headers, params=params)
+        return handle_api_response(
+            response=response,
+            success_message=f"{network} block checked",
+            verbose=verbose,
+            endpoint="check-block",
+        )
+    except requests.exceptions.RequestException as e:
+        print_error(f"Error querying block {network}: {e}")
         return None
 
 

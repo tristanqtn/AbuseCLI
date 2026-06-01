@@ -75,6 +75,7 @@ def _app_callback() -> None:
 
 def _resolve_cache_path(location: Optional[str]):
     from pathlib import Path as _Path
+
     return _Path(location) if location else CACHE_PATH
 
 
@@ -110,6 +111,7 @@ def _resolve_api_key(token: Optional[str], verbose: bool) -> str:
 
 
 # ── Lookup ────────────────────────────────────────────────────────────────────
+
 
 @app.command(rich_help_panel="Lookup")
 def blacklist(
@@ -403,8 +405,16 @@ def check(
 
     api_key = _resolve_api_key(token, verbose)
 
-    resolved_max_age = max_age if max_age is not None else config_get("max_age", DEFAULT_MAX_AGE_IN_DAYS)
-    resolved_cache_ttl = cache_ttl if cache_ttl is not None else config_get("cache_ttl", DEFAULT_CACHE_TTL_HOURS)
+    resolved_max_age = (
+        max_age
+        if max_age is not None
+        else config_get("max_age", DEFAULT_MAX_AGE_IN_DAYS)
+    )
+    resolved_cache_ttl = (
+        cache_ttl
+        if cache_ttl is not None
+        else config_get("cache_ttl", DEFAULT_CACHE_TTL_HOURS)
+    )
 
     args = SimpleNamespace(
         activity=activity,
@@ -427,6 +437,7 @@ def check(
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────────
+
 
 @app.command(rich_help_panel="Reporting")
 def categories():
