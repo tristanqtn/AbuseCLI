@@ -75,20 +75,23 @@ def _resolve_api_key(token: Optional[str], verbose: bool) -> str:
 
 @app.command()
 def check(
-    ips: Annotated[
-        Optional[list[str]],
-        typer.Option(
-            "--ips",
-            metavar="IP",
-            help="IP address(es) to check. Repeat or comma-separate for multiple.",
-        ),
-    ] = None,
+    # ── Input ────────────────────────────────────────────────────────────────
     from_file: Annotated[
         Optional[str],
         typer.Option(
             "--from-file",
             metavar="FILE",
             help="Plain-text file, one IP per line (# ignored). Use - for stdin.",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    ips: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--ips",
+            metavar="IP",
+            help="IP address(es) to check. Repeat or comma-separate for multiple.",
+            rich_help_panel="Input",
         ),
     ] = None,
     max_age: Annotated[
@@ -97,8 +100,51 @@ def check(
             "--max-age",
             metavar="DAYS",
             help=f"Only consider reports from the last N days (default: {DEFAULT_MAX_AGE_IN_DAYS}, max: 365).",
+            rich_help_panel="Input",
         ),
     ] = DEFAULT_MAX_AGE_IN_DAYS,
+    # ── Filters ───────────────────────────────────────────────────────────────
+    country_code: Annotated[
+        Optional[str],
+        typer.Option(
+            "--country-code",
+            metavar="CC",
+            help="Keep IPs matching this ISO country code (e.g. US, DE).",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    is_not_tor: Annotated[
+        bool,
+        typer.Option(
+            "--is-not-tor",
+            help="Exclude TOR exit nodes.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    is_tor: Annotated[
+        bool,
+        typer.Option(
+            "--is-tor",
+            help="Keep only TOR exit nodes.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    remove_private: Annotated[
+        bool,
+        typer.Option(
+            "--remove-private",
+            help="Exclude private/RFC-1918 addresses.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    remove_whitelisted: Annotated[
+        bool,
+        typer.Option(
+            "--remove-whitelisted",
+            help="Exclude AbuseIPDB-whitelisted addresses.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
     risk_level: Annotated[
         Optional[RiskLevel],
         typer.Option(
@@ -106,36 +152,44 @@ def check(
             "-r",
             metavar="LEVEL",
             help="Keep only IPs at this risk level.",
+            rich_help_panel="Filters",
         ),
     ] = None,
     score: Annotated[
         Optional[int],
         typer.Option(
-            "--score", metavar="N", help="Keep IPs with abuse score >= N (0-100)."
+            "--score",
+            metavar="N",
+            help="Keep IPs with abuse score >= N (0-100).",
+            rich_help_panel="Filters",
         ),
     ] = None,
-    country_code: Annotated[
-        Optional[str],
+    # ── Cache ─────────────────────────────────────────────────────────────────
+    cache_ttl: Annotated[
+        int,
         typer.Option(
-            "--country-code",
-            metavar="CC",
-            help="Keep IPs matching this ISO country code (e.g. US, DE).",
+            "--cache-ttl",
+            metavar="HOURS",
+            help=f"Cache TTL in hours (default: {DEFAULT_CACHE_TTL_HOURS}). Set 0 to disable.",
+            rich_help_panel="Cache",
         ),
-    ] = None,
-    is_tor: Annotated[
-        bool, typer.Option("--is-tor", help="Keep only TOR exit nodes.")
-    ] = False,
-    is_not_tor: Annotated[
-        bool, typer.Option("--is-not-tor", help="Exclude TOR exit nodes.")
-    ] = False,
-    remove_private: Annotated[
-        bool,
-        typer.Option("--remove-private", help="Exclude private/RFC-1918 addresses."),
-    ] = False,
-    remove_whitelisted: Annotated[
+    ] = DEFAULT_CACHE_TTL_HOURS,
+    no_cache: Annotated[
         bool,
         typer.Option(
-            "--remove-whitelisted", help="Exclude AbuseIPDB-whitelisted addresses."
+            "--no-cache",
+            help="Bypass cache and always query the API.",
+            rich_help_panel="Cache",
+        ),
+    ] = False,
+    # ── Output ────────────────────────────────────────────────────────────────
+    activity: Annotated[
+        bool,
+        typer.Option(
+            "--activity",
+            "-a",
+            help="Show recent report activity per IP.",
+            rich_help_panel="Output",
         ),
     ] = False,
     export: Annotated[
@@ -145,38 +199,26 @@ def check(
             "-e",
             metavar="FORMAT",
             help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
+            rich_help_panel="Output",
         ),
     ] = None,
-    cache_ttl: Annotated[
-        int,
-        typer.Option(
-            "--cache-ttl",
-            metavar="HOURS",
-            help=f"Cache TTL in hours (default: {DEFAULT_CACHE_TTL_HOURS}). Set 0 to disable.",
-        ),
-    ] = DEFAULT_CACHE_TTL_HOURS,
-    no_cache: Annotated[
-        bool,
-        typer.Option("--no-cache", help="Bypass cache and always query the API."),
-    ] = False,
-    activity: Annotated[
-        bool,
-        typer.Option("--activity", "-a", help="Show recent report activity per IP."),
-    ] = False,
     verbose: Annotated[
         bool,
         typer.Option(
             "--verbose",
             "-v",
             help="Show per-IP detail, filter trace, and API diagnostics.",
+            rich_help_panel="Output",
         ),
     ] = False,
+    # ── Auth ──────────────────────────────────────────────────────────────────
     token: Annotated[
         Optional[str],
         typer.Option(
             "--token",
             metavar="KEY",
             help="API key — overrides .env and environment variable.",
+            rich_help_panel="Auth",
         ),
     ] = None,
 ):
@@ -188,20 +230,20 @@ def check(
     api_key = _resolve_api_key(token, verbose)
 
     args = SimpleNamespace(
-        ips=_parse_ips(ips),
-        from_file=from_file,
-        max_age=max_age,
-        risk_level=risk_level.value if risk_level else None,
-        score=score,
+        activity=activity,
+        cache_ttl=cache_ttl if cache_ttl > 0 else 0,
         country_code=country_code,
-        is_tor=is_tor,
+        export=[f.value for f in export] if export else None,
+        from_file=from_file,
+        ips=_parse_ips(ips),
         is_not_tor=is_not_tor,
+        is_tor=is_tor,
+        max_age=max_age,
+        no_cache=no_cache or cache_ttl == 0,
         remove_private=remove_private,
         remove_whitelisted=remove_whitelisted,
-        export=[f.value for f in export] if export else None,
-        cache_ttl=cache_ttl if cache_ttl > 0 else 0,
-        no_cache=no_cache or cache_ttl == 0,
-        activity=activity,
+        risk_level=risk_level.value if risk_level else None,
+        score=score,
         verbose=verbose,
     )
     cmd_check(args, api_key)
@@ -209,20 +251,42 @@ def check(
 
 @app.command()
 def report(
-    ips: Annotated[
-        Optional[list[str]],
+    # ── Input ────────────────────────────────────────────────────────────────
+    file_format: Annotated[
+        SourceFormat,
         typer.Option(
-            "--ips",
-            metavar="IP",
-            help="IP address(es) to report. Repeat or comma-separate for multiple.",
+            "--format",
+            "-f",
+            metavar="FORMAT",
+            help="Source file format (default: auto-detect).",
+            rich_help_panel="Input",
         ),
-    ] = None,
+    ] = SourceFormat.auto,
     from_file: Annotated[
         Optional[str],
         typer.Option(
             "--from-file",
             metavar="FILE",
             help="Plain-text file, one IP per line (# ignored). Use - for stdin.",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    ips: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--ips",
+            metavar="IP",
+            help="IP address(es) to report. Repeat or comma-separate for multiple.",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    min_score: Annotated[
+        Optional[int],
+        typer.Option(
+            "--min-score",
+            metavar="N",
+            help="Only report IPs with score >= N. Only used with --source.",
+            rich_help_panel="Input",
         ),
     ] = None,
     source: Annotated[
@@ -232,31 +296,17 @@ def report(
             "-s",
             metavar="FILE",
             help="Load IPs from a previous export (CSV/JSON/Excel/Parquet). Exclusive with --ips/--from-file.",
+            rich_help_panel="Input",
         ),
     ] = None,
-    file_format: Annotated[
-        SourceFormat,
-        typer.Option(
-            "--format",
-            "-f",
-            metavar="FORMAT",
-            help="Source file format (default: auto-detect).",
-        ),
-    ] = SourceFormat.auto,
-    min_score: Annotated[
-        Optional[int],
-        typer.Option(
-            "--min-score",
-            metavar="N",
-            help="Only report IPs with score >= N. Only used with --source.",
-        ),
-    ] = None,
+    # ── Report ────────────────────────────────────────────────────────────────
     categories: Annotated[
         Optional[list[int]],
         typer.Option(
             "--categories",
             metavar="ID",
             help="Category ID to report. Repeat for multiple. Run 'categories' for the full list.",
+            rich_help_panel="Report",
         ),
     ] = None,
     comment: Annotated[
@@ -265,30 +315,44 @@ def report(
             "--comment",
             metavar="TEXT",
             help="Free-text comment attached to every report in this batch.",
+            rich_help_panel="Report",
         ),
     ] = "",
+    # ── Behavior ──────────────────────────────────────────────────────────────
     dry_run: Annotated[
         bool,
         typer.Option(
-            "--dry-run", help="Preview the batch without submitting anything."
+            "--dry-run",
+            help="Preview the batch without submitting anything.",
+            rich_help_panel="Behavior",
         ),
     ] = False,
     no_confirm: Annotated[
         bool,
         typer.Option(
-            "--no-confirm", help="Skip the confirmation prompt and report immediately."
+            "--no-confirm",
+            help="Skip the confirmation prompt and report immediately.",
+            rich_help_panel="Behavior",
         ),
     ] = False,
+    # ── Output ────────────────────────────────────────────────────────────────
     verbose: Annotated[
         bool,
-        typer.Option("--verbose", "-v", help="Show per-IP detail and API diagnostics."),
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show per-IP detail and API diagnostics.",
+            rich_help_panel="Output",
+        ),
     ] = False,
+    # ── Auth ──────────────────────────────────────────────────────────────────
     token: Annotated[
         Optional[str],
         typer.Option(
             "--token",
             metavar="KEY",
             help="API key — overrides .env and environment variable.",
+            rich_help_panel="Auth",
         ),
     ] = None,
 ):
@@ -308,15 +372,15 @@ def report(
     api_key = _resolve_api_key(token, verbose)
 
     args = SimpleNamespace(
-        ips=_parse_ips(ips),
-        from_file=from_file,
-        source=source,
-        format=file_format.value,
-        min_score=min_score,
         categories=categories,
         comment=comment,
         dry_run=dry_run,
+        format=file_format.value,
+        from_file=from_file,
+        ips=_parse_ips(ips),
+        min_score=min_score,
         no_confirm=no_confirm,
+        source=source,
         verbose=verbose,
     )
     cmd_report(args, api_key)
@@ -324,10 +388,7 @@ def report(
 
 @app.command()
 def load(
-    source: Annotated[
-        Optional[str],
-        typer.Option("--source", "-s", metavar="FILE", help="Source file to load."),
-    ] = None,
+    # ── Input ────────────────────────────────────────────────────────────────
     file_format: Annotated[
         SourceFormat,
         typer.Option(
@@ -335,8 +396,61 @@ def load(
             "-f",
             metavar="FORMAT",
             help="File format (default: auto-detect).",
+            rich_help_panel="Input",
         ),
     ] = SourceFormat.auto,
+    source: Annotated[
+        Optional[str],
+        typer.Option(
+            "--source",
+            "-s",
+            metavar="FILE",
+            help="Source file to load.",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    # ── Filters ───────────────────────────────────────────────────────────────
+    country_code: Annotated[
+        Optional[str],
+        typer.Option(
+            "--country-code",
+            metavar="CC",
+            help="Keep IPs matching this ISO country code.",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    is_not_tor: Annotated[
+        bool,
+        typer.Option(
+            "--is-not-tor",
+            help="Exclude TOR exit nodes.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    is_tor: Annotated[
+        bool,
+        typer.Option(
+            "--is-tor",
+            help="Keep only TOR exit nodes.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    remove_private: Annotated[
+        bool,
+        typer.Option(
+            "--remove-private",
+            help="Exclude private/RFC-1918 addresses.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    remove_whitelisted: Annotated[
+        bool,
+        typer.Option(
+            "--remove-whitelisted",
+            help="Exclude AbuseIPDB-whitelisted addresses.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
     risk_level: Annotated[
         Optional[RiskLevel],
         typer.Option(
@@ -344,38 +458,19 @@ def load(
             "-r",
             metavar="LEVEL",
             help="Keep only IPs at this risk level.",
+            rich_help_panel="Filters",
         ),
     ] = None,
     score: Annotated[
         Optional[int],
         typer.Option(
-            "--score", metavar="N", help="Keep IPs with abuse score >= N (0-100)."
+            "--score",
+            metavar="N",
+            help="Keep IPs with abuse score >= N (0-100).",
+            rich_help_panel="Filters",
         ),
     ] = None,
-    country_code: Annotated[
-        Optional[str],
-        typer.Option(
-            "--country-code",
-            metavar="CC",
-            help="Keep IPs matching this ISO country code.",
-        ),
-    ] = None,
-    is_tor: Annotated[
-        bool, typer.Option("--is-tor", help="Keep only TOR exit nodes.")
-    ] = False,
-    is_not_tor: Annotated[
-        bool, typer.Option("--is-not-tor", help="Exclude TOR exit nodes.")
-    ] = False,
-    remove_private: Annotated[
-        bool,
-        typer.Option("--remove-private", help="Exclude private/RFC-1918 addresses."),
-    ] = False,
-    remove_whitelisted: Annotated[
-        bool,
-        typer.Option(
-            "--remove-whitelisted", help="Exclude AbuseIPDB-whitelisted addresses."
-        ),
-    ] = False,
+    # ── Output ────────────────────────────────────────────────────────────────
     export: Annotated[
         Optional[list[ExportFormat]],
         typer.Option(
@@ -383,11 +478,17 @@ def load(
             "-e",
             metavar="FORMAT",
             help="Export results. Repeat for multiple formats.",
+            rich_help_panel="Output",
         ),
     ] = None,
     verbose: Annotated[
         bool,
-        typer.Option("--verbose", "-v", help="Show filter trace and file diagnostics."),
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show filter trace and file diagnostics.",
+            rich_help_panel="Output",
+        ),
     ] = False,
 ):
     """Reload a previous export, apply filters, and re-export."""
@@ -396,16 +497,16 @@ def load(
         raise typer.Exit(1)
 
     args = SimpleNamespace(
-        source=source,
-        format=file_format.value,
-        risk_level=risk_level.value if risk_level else None,
-        score=score,
         country_code=country_code,
-        is_tor=is_tor,
+        export=[f.value for f in export] if export else None,
+        format=file_format.value,
         is_not_tor=is_not_tor,
+        is_tor=is_tor,
         remove_private=remove_private,
         remove_whitelisted=remove_whitelisted,
-        export=[f.value for f in export] if export else None,
+        risk_level=risk_level.value if risk_level else None,
+        score=score,
+        source=source,
         verbose=verbose,
     )
     cmd_load(args)
