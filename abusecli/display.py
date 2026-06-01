@@ -60,7 +60,7 @@ def build_score_bar(score: int, width: int = 15) -> Text:
     return bar
 
 
-def display_results(df: pd.DataFrame) -> None:
+def display_results(df: pd.DataFrame, verbose: bool = False) -> None:
     table = Table(
         title="IP Analysis Results",
         show_lines=True,
@@ -118,6 +118,9 @@ def display_results(df: pd.DataFrame) -> None:
     console.print()
     console.print(table)
 
+    if not verbose:
+        return
+
     total = len(df)
     risk_counts = (
         df["risk_level"].value_counts() if "risk_level" in df.columns else pd.Series()
@@ -136,12 +139,20 @@ def display_results(df: pd.DataFrame) -> None:
 
     if "countryCode" in df.columns:
         unique_countries = df["countryCode"].nunique()
-        summary_lines.append(f"[bold]Countries:[/bold]  {unique_countries}")
+        country_list = ", ".join(
+            sorted(df["countryCode"].dropna().unique().tolist())
+        )
+        summary_lines.append(f"[bold]Countries:[/bold]  {unique_countries}  [dim]{country_list}[/dim]")
 
     if "isTor" in df.columns:
-        tor_count = df["isTor"].sum()
+        tor_count = int(df["isTor"].sum())
         if tor_count > 0:
             summary_lines.append(f"[bold red]TOR nodes:[/bold red] {tor_count}")
+
+    if "isWhitelisted" in df.columns:
+        wl_count = int(df["isWhitelisted"].sum())
+        if wl_count > 0:
+            summary_lines.append(f"[bold]Whitelisted:[/bold] {wl_count}")
 
     if has_reports:
         total_reports = int(df["totalReports"].sum())

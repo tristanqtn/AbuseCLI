@@ -12,7 +12,7 @@ from rich.progress import (
 )
 
 from .api import check_ip, report_ip
-from .cache import get_cached, set_cached
+from .cache import get_cached, set_cached, CACHE_PATH
 from .data import apply_all_filters, reorder_columns
 from .io import (
     load_dataframe,
@@ -98,7 +98,8 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     cache_ttl = getattr(args, "cache_ttl", DEFAULT_CACHE_TTL_HOURS)
     no_cache = getattr(args, "no_cache", False)
 
-    ips = list(dict.fromkeys(getattr(args, "ips", None) or []))
+    raw_ips = list(getattr(args, "ips", None) or [])
+    ips = list(dict.fromkeys(raw_ips))
 
     from_file = getattr(args, "from_file", None)
     if from_file:
@@ -117,7 +118,14 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
         return None
 
     if verbose:
-        print_info(f"Checking {len(ips)} IP(s) with maxAgeInDays={max_age}")
+        deduped = len(raw_ips) - len(ips)
+        if deduped:
+            print_info(f"Deduplicated: {len(raw_ips)} → {len(ips)} unique IPs ({deduped} removed)")
+        if no_cache:
+            print_info("Cache disabled (--no-cache)")
+        else:
+            print_info(f"Cache: {CACHE_PATH}  TTL: {cache_ttl}h")
+        print_info(f"Checking {len(ips)} IP(s)  maxAgeInDays={max_age}")
 
     results = []
     reports_by_ip: dict[str, list] = {}
@@ -206,7 +214,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
             if ip in surviving_ips:
                 display_verbose_report(ip, {"ipAddress": ip, "reports": payload})
 
-    display_results(df)
+    display_results(df, verbose=verbose)
 
     show_activity = getattr(args, "activity", False)
     if show_activity:
@@ -411,5 +419,5 @@ def cmd_load(args) -> pd.DataFrame | None:
     source_stem = Path(args.source).stem
     _run_export(df, args, f"{source_stem}_filtered")
 
-    display_results(df)
+    display_results(df, verbose=verbose)
     return df
