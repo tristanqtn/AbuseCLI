@@ -73,14 +73,20 @@ def display_results(df: pd.DataFrame, verbose: bool = False) -> None:
 
     has_reports = "totalReports" in df.columns
     has_last_reported = "lastReportedAt" in df.columns
+    has_whitelisted = "isWhitelisted" in df.columns
+    has_tor = "isTor" in df.columns
+    has_public = "isPublic" in df.columns
 
     table.add_column("IP Address", style="bold white", no_wrap=True)
     table.add_column("Risk", justify="center")
     table.add_column("Score", justify="center", min_width=20)
     table.add_column("Country", justify="center")
-    table.add_column("Whitelisted", justify="center")
-    table.add_column("TOR", justify="center")
-    table.add_column("Public", justify="center")
+    if has_whitelisted:
+        table.add_column("Whitelisted", justify="center")
+    if has_tor:
+        table.add_column("TOR", justify="center")
+    if has_public:
+        table.add_column("Public", justify="center")
     if has_reports:
         table.add_column("Reports", justify="right")
     if has_last_reported:
@@ -96,10 +102,14 @@ def display_results(df: pd.DataFrame, verbose: bool = False) -> None:
             Text(risk.upper(), style=f"bold {risk_color}"),
             build_score_bar(score),
             str(row.get("countryCode", "N/A")),
-            "Yes" if row.get("isWhitelisted") else "No",
-            Text("Yes", style="bold red") if row.get("isTor") else Text("No"),
-            "Yes" if row.get("isPublic") else Text("No", style="dim"),
         ]
+
+        if has_whitelisted:
+            cells.append("Yes" if row.get("isWhitelisted") else "No")
+        if has_tor:
+            cells.append(Text("Yes", style="bold red") if row.get("isTor") else Text("No"))
+        if has_public:
+            cells.append("Yes" if row.get("isPublic") else Text("No", style="dim"))
 
         if has_reports:
             report_count = int(row.get("totalReports", 0))

@@ -3,8 +3,11 @@ import json
 import requests
 
 from .constants import (
+    ABUSEIPDB_BLACKLIST_URL,
     ABUSEIPDB_CHECK_URL,
     ABUSEIPDB_REPORT_URL,
+    DEFAULT_BLACKLIST_CONFIDENCE,
+    DEFAULT_BLACKLIST_LIMIT,
     DEFAULT_MAX_AGE_IN_DAYS,
 )
 from .display import print_success, print_error
@@ -42,6 +45,36 @@ def handle_api_response(
 
     except requests.exceptions.RequestException as e:
         print_error(f"Request failed: {e}")
+        return None
+
+
+def get_blacklist(
+    api_key: str,
+    confidence_minimum: int = DEFAULT_BLACKLIST_CONFIDENCE,
+    limit: int = DEFAULT_BLACKLIST_LIMIT,
+    ip_version: int | None = None,
+    only_countries: list[str] | None = None,
+    except_countries: list[str] | None = None,
+    verbose: bool = False,
+) -> dict | None:
+    headers = {"Key": api_key, "Accept": "application/json"}
+    params: dict = {"confidenceMinimum": confidence_minimum, "limit": limit}
+    if ip_version:
+        params["ipVersion"] = ip_version
+    if only_countries:
+        params["onlyCountries"] = ",".join(only_countries)
+    if except_countries:
+        params["exceptCountries"] = ",".join(except_countries)
+
+    try:
+        response = requests.get(ABUSEIPDB_BLACKLIST_URL, headers=headers, params=params)
+        return handle_api_response(
+            response=response,
+            success_message="Blacklist retrieved",
+            verbose=verbose,
+        )
+    except requests.exceptions.RequestException as e:
+        print_error(f"Error fetching blacklist: {e}")
         return None
 
 

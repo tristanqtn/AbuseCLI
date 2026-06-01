@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 from rich.progress import (
@@ -11,7 +12,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .api import check_ip, report_ip
+from .api import check_ip, get_blacklist, report_ip
 from .cache import get_cached, set_cached, CACHE_PATH
 from .data import apply_all_filters, reorder_columns
 from .io import (
@@ -32,11 +33,13 @@ from .display import (
     display_verbose_report,
 )
 from .constants import (
-    DEFAULT_MAX_AGE_IN_DAYS,
+    DEFAULT_BLACKLIST_CONFIDENCE,
+    DEFAULT_BLACKLIST_LIMIT,
     DEFAULT_CACHE_TTL_HOURS,
+    DEFAULT_MAX_AGE_IN_DAYS,
+    DISPLAY_COLUMN_ORDER,
     VALID_REPORT_CATEGORIES,
     ABUSE_CATEGORIES,
-    DISPLAY_COLUMN_ORDER,
 )
 
 
@@ -384,6 +387,73 @@ def _execute_reports(
         print_success(f"Reported {success_count} IP(s) successfully")
     if error_count:
         print_error(f"{error_count} report(s) failed")
+
+
+def cmd_blacklist(args, api_key: str) -> pd.DataFrame | None:
+    verbose = getattr(args, "verbose", False)
+    confidence = getattr(args, "confidence", DEFAULT_BLACKLIST_CONFIDENCE)
+    except_countries = getattr(args, "except_countries", None)
+    ip_version = getattr(args, "ip_version", None)
+    limit = getattr(args, "limit", DEFAULT_BLACKLIST_LIMIT)
+    only_countries = getattr(args, "only_countries", None)
+
+    if verbose:
+        print_info(f"Fetching blacklist  confidence>={confidence}  limit={limit}")
+        if ip_version:
+            print_info(f"IP version filter: IPv{ip_version}")
+        if only_countries:
+            print_info(f"Only countries: {', '.join(only_countries)}")
+        if except_countries:
+            print_info(f"Except countries: {', '.join(except_countries)}")
+
+    with console.status("[bold]Fetching AbuseIPDB blacklist…[/bold]"):
+        response = get_blacklist(
+            api_key=api_key,
+            confidence_minimum=confidence,
+            limit=limit,
+            ip_version=ip_version,
+            only_countries=only_countries,
+            except_countries=except_countries,
+            verbose=verbose,
+        )
+
+    if not response:
+        print_error("Failed to fetch blacklist")
+        return None
+
+    data = response.get("data", [])
+    meta = response.get("meta", {})
+
+    if not data:
+        print_error("Blacklist is empty")
+        return None
+
+    if verbose:
+        generated_at = meta.get("generatedAt", "N/A")
+        print_info(f"Generated at: {generated_at}  ({len(data)} IPs received)")
+
+    df = pd.DataFrame(data)
+
+    filter_args = SimpleNamespace(
+        country_code=getattr(args, "country_code", None),
+        is_not_tor=False,
+        is_tor=False,
+        remove_private=False,
+        remove_whitelisted=False,
+        risk_level=getattr(args, "risk_level", None),
+        score=getattr(args, "score", None),
+        verbose=verbose,
+    )
+    df = apply_all_filters(df, filter_args)
+
+    if df.empty:
+        print_error("No IPs match the specified filters")
+        return None
+
+    df = reorder_columns(df, DISPLAY_COLUMN_ORDER)
+    display_results(df, verbose=verbose)
+    _run_export(df, args, "blacklist")
+    return df
 
 
 def cmd_categories() -> None:

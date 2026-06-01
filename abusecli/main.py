@@ -6,8 +6,13 @@ import typer
 from typing import Annotated
 
 from .auth import load_api_key
-from .commands import cmd_check, cmd_report, cmd_load, cmd_categories
-from .constants import DEFAULT_MAX_AGE_IN_DAYS, DEFAULT_CACHE_TTL_HOURS
+from .commands import cmd_blacklist, cmd_check, cmd_report, cmd_load, cmd_categories
+from .constants import (
+    DEFAULT_BLACKLIST_CONFIDENCE,
+    DEFAULT_BLACKLIST_LIMIT,
+    DEFAULT_CACHE_TTL_HOURS,
+    DEFAULT_MAX_AGE_IN_DAYS,
+)
 from .display import print_banner, print_error
 
 
@@ -46,6 +51,12 @@ app = typer.Typer(
 @app.callback()
 def _app_callback() -> None:
     print_banner()
+
+
+def _parse_countries(value: Optional[str]) -> list[str] | None:
+    if not value:
+        return None
+    return [c.strip().upper() for c in value.replace(" ", ",").split(",") if c.strip()]
 
 
 def _parse_ips(ips: Optional[list[str]]) -> list[str]:
@@ -510,6 +521,142 @@ def load(
         verbose=verbose,
     )
     cmd_load(args)
+
+
+@app.command()
+def blacklist(
+    # ── Input ────────────────────────────────────────────────────────────────
+    confidence: Annotated[
+        int,
+        typer.Option(
+            "--confidence",
+            "-c",
+            metavar="N",
+            help="Minimum abuse confidence score (25–100). Scores below 100 require a premium account.",
+            rich_help_panel="Input",
+        ),
+    ] = DEFAULT_BLACKLIST_CONFIDENCE,
+    except_countries: Annotated[
+        Optional[str],
+        typer.Option(
+            "--except-countries",
+            metavar="CC,...",
+            help="Comma-separated country codes to exclude (server-side).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    ip_version: Annotated[
+        Optional[int],
+        typer.Option(
+            "--ip-version",
+            metavar="4|6",
+            help="Filter by IP version (4 or 6).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            "-l",
+            metavar="N",
+            help=f"Maximum number of IPs to return (default: {DEFAULT_BLACKLIST_LIMIT}).",
+            rich_help_panel="Input",
+        ),
+    ] = DEFAULT_BLACKLIST_LIMIT,
+    only_countries: Annotated[
+        Optional[str],
+        typer.Option(
+            "--only-countries",
+            metavar="CC,...",
+            help="Comma-separated country codes to include (server-side).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    # ── Filters ───────────────────────────────────────────────────────────────
+    country_code: Annotated[
+        Optional[str],
+        typer.Option(
+            "--country-code",
+            metavar="CC",
+            help="Keep only IPs matching this ISO country code (client-side).",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    risk_level: Annotated[
+        Optional[RiskLevel],
+        typer.Option(
+            "--risk-level",
+            "-r",
+            metavar="LEVEL",
+            help="Keep only IPs at this risk level.",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    score: Annotated[
+        Optional[int],
+        typer.Option(
+            "--score",
+            metavar="N",
+            help="Keep IPs with abuse score >= N (0–100).",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    # ── Output ────────────────────────────────────────────────────────────────
+    export: Annotated[
+        Optional[list[ExportFormat]],
+        typer.Option(
+            "--export",
+            "-e",
+            metavar="FORMAT",
+            help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
+            rich_help_panel="Output",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show filter trace, metadata, and API diagnostics.",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--token",
+            metavar="KEY",
+            help="API key — overrides .env and environment variable.",
+            rich_help_panel="Auth",
+        ),
+    ] = None,
+):
+    """Download the AbuseIPDB blacklist of most-reported IPs."""
+    if ip_version is not None and ip_version not in (4, 6):
+        print_error("--ip-version must be 4 or 6")
+        raise typer.Exit(1)
+
+    if not (25 <= confidence <= 100):
+        print_error("--confidence must be between 25 and 100")
+        raise typer.Exit(1)
+
+    api_key = _resolve_api_key(token, verbose)
+
+    args = SimpleNamespace(
+        confidence=confidence,
+        country_code=country_code,
+        except_countries=_parse_countries(except_countries),
+        export=[f.value for f in export] if export else None,
+        ip_version=ip_version,
+        limit=limit,
+        only_countries=_parse_countries(only_countries),
+        risk_level=risk_level.value if risk_level else None,
+        score=score,
+        verbose=verbose,
+    )
+    cmd_blacklist(args, api_key)
 
 
 @app.command()

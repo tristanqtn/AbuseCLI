@@ -1,3 +1,4 @@
+ABUSEIPDB_BLACKLIST_URL = "https://api.abuseipdb.com/api/v2/blacklist"
 ABUSEIPDB_CHECK_URL = "https://api.abuseipdb.com/api/v2/check"
 ABUSEIPDB_REPORT_URL = "https://api.abuseipdb.com/api/v2/report"
 
@@ -8,6 +9,8 @@ DEFAULT_MAX_AGE_IN_DAYS = 90
 MAX_AGE_IN_DAYS_MIN = 1
 MAX_AGE_IN_DAYS_MAX = 365
 
+DEFAULT_BLACKLIST_CONFIDENCE = 100
+DEFAULT_BLACKLIST_LIMIT = 10000
 DEFAULT_CACHE_TTL_HOURS = 24
 
 VALID_REPORT_CATEGORIES = set(range(1, 24))
