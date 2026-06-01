@@ -186,11 +186,13 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
 
     display_results(df)
 
-    active = {
-        ip: r for ip, r in reports_by_ip.items() if ip in set(df["ipAddress"].values)
-    }
-    if active:
-        display_recent_activity(active)
+    show_activity = getattr(args, "activity", False)
+    if show_activity:
+        active = {
+            ip: r for ip, r in reports_by_ip.items() if ip in set(df["ipAddress"].values)
+        }
+        if active:
+            display_recent_activity(active)
 
     _run_export(df, args, "ip_check")
     return df

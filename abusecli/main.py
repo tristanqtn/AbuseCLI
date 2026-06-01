@@ -147,6 +147,10 @@ def check(
             help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
         ),
     ] = None,
+    activity: Annotated[
+        bool,
+        typer.Option("--activity", "-a", help="Show recent report activity per IP."),
+    ] = False,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -183,6 +187,7 @@ def check(
         remove_private=remove_private,
         remove_whitelisted=remove_whitelisted,
         export=[f.value for f in export] if export else None,
+        activity=activity,
         verbose=verbose,
     )
     cmd_check(args, api_key)
