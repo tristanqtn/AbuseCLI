@@ -1,0 +1,13 @@
+# AbuseCLI configuration file
+# Copy to ~/.abusecli.toml and fill in your values.
+# CLI flags always take priority over these settings.
+
+# Your AbuseIPDB API key.
+# Overridden by: --token flag > ABUSEIPDB_API_KEY env var > .env file > this file.
+# api_key = "your_api_key_here"
+
+# Maximum age of reports to consider, in days (1–365).
+# max_age = 90
+
+# How long to cache IP lookups, in hours. Set to 0 to disable caching.
+# cache_ttl = 24

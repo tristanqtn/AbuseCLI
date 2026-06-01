@@ -1,4 +1,5 @@
 ## CUSTOM 
+.abusecli.toml
 .abusecli_cache.json
 ip_check*
 

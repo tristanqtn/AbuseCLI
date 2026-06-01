@@ -5,6 +5,7 @@ import getpass
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 
+from .config import get as config_get
 from .constants import ENV_FILE, ENV_KEY_NAME
 from .display import print_success, print_error, print_info, print_warning
 
@@ -15,16 +16,22 @@ def load_api_key(args) -> str:
         load_dotenv(env_path)
 
     api_key = None
+    verbose = getattr(args, "verbose", False)
 
     if getattr(args, "token", None):
         api_key = args.token
-        if getattr(args, "verbose", False):
+        if verbose:
             print_info("API key provided via --token argument")
 
     elif os.getenv(ENV_KEY_NAME):
         api_key = os.getenv(ENV_KEY_NAME)
-        if getattr(args, "verbose", False):
+        if verbose:
             print_info("API key loaded from environment / .env")
+
+    elif config_get("api_key"):
+        api_key = config_get("api_key")
+        if verbose:
+            print_info("API key loaded from ~/.abusecli.toml")
 
     else:
         print_warning("AbuseIPDB API key not found.")

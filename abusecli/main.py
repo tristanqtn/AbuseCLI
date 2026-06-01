@@ -18,6 +18,7 @@ from .commands import (
     cmd_load,
     cmd_report,
 )
+from .config import get as config_get
 from .constants import (
     DEFAULT_BLACKLIST_CONFIDENCE,
     DEFAULT_BLACKLIST_LIMIT,
@@ -58,7 +59,6 @@ app = typer.Typer(
     add_completion=False,
 )
 
-
 cache_app = typer.Typer(
     name="cache",
     help="Inspect and manage the local IP cache.",
@@ -66,7 +66,6 @@ cache_app = typer.Typer(
     rich_markup_mode="rich",
     add_completion=False,
 )
-app.add_typer(cache_app)
 
 
 @app.callback()
@@ -110,7 +109,145 @@ def _resolve_api_key(token: Optional[str], verbose: bool) -> str:
         raise typer.Exit(1)
 
 
-@app.command()
+# ── Lookup ────────────────────────────────────────────────────────────────────
+
+@app.command(rich_help_panel="Lookup")
+def blacklist(
+    # ── Input ────────────────────────────────────────────────────────────────
+    confidence: Annotated[
+        int,
+        typer.Option(
+            "--confidence",
+            "-c",
+            metavar="N",
+            help="Minimum abuse confidence score (25–100). Scores below 100 require a premium account.",
+            rich_help_panel="Input",
+        ),
+    ] = DEFAULT_BLACKLIST_CONFIDENCE,
+    except_countries: Annotated[
+        Optional[str],
+        typer.Option(
+            "--except-countries",
+            metavar="CC,...",
+            help="Comma-separated country codes to exclude (server-side).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    ip_version: Annotated[
+        Optional[int],
+        typer.Option(
+            "--ip-version",
+            metavar="4|6",
+            help="Filter by IP version (4 or 6).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            "-l",
+            metavar="N",
+            help=f"Maximum number of IPs to return (default: {DEFAULT_BLACKLIST_LIMIT}).",
+            rich_help_panel="Input",
+        ),
+    ] = DEFAULT_BLACKLIST_LIMIT,
+    only_countries: Annotated[
+        Optional[str],
+        typer.Option(
+            "--only-countries",
+            metavar="CC,...",
+            help="Comma-separated country codes to include (server-side).",
+            rich_help_panel="Input",
+        ),
+    ] = None,
+    # ── Filters ───────────────────────────────────────────────────────────────
+    country_code: Annotated[
+        Optional[str],
+        typer.Option(
+            "--country-code",
+            metavar="CC",
+            help="Keep only IPs matching this ISO country code (client-side).",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    risk_level: Annotated[
+        Optional[RiskLevel],
+        typer.Option(
+            "--risk-level",
+            "-r",
+            metavar="LEVEL",
+            help="Keep only IPs at this risk level.",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    score: Annotated[
+        Optional[int],
+        typer.Option(
+            "--score",
+            metavar="N",
+            help="Keep IPs with abuse score >= N (0–100).",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+    # ── Output ────────────────────────────────────────────────────────────────
+    export: Annotated[
+        Optional[list[ExportFormat]],
+        typer.Option(
+            "--export",
+            "-e",
+            metavar="FORMAT",
+            help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
+            rich_help_panel="Output",
+        ),
+    ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show filter trace, metadata, and API diagnostics.",
+            rich_help_panel="Output",
+        ),
+    ] = False,
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--token",
+            metavar="KEY",
+            help="API key — overrides .env and environment variable.",
+            rich_help_panel="Auth",
+        ),
+    ] = None,
+):
+    """Download the AbuseIPDB blacklist of most-reported IPs."""
+    if ip_version is not None and ip_version not in (4, 6):
+        print_error("--ip-version must be 4 or 6")
+        raise typer.Exit(1)
+
+    if not (25 <= confidence <= 100):
+        print_error("--confidence must be between 25 and 100")
+        raise typer.Exit(1)
+
+    api_key = _resolve_api_key(token, verbose)
+
+    args = SimpleNamespace(
+        confidence=confidence,
+        country_code=country_code,
+        except_countries=_parse_countries(except_countries),
+        export=[f.value for f in export] if export else None,
+        ip_version=ip_version,
+        limit=limit,
+        only_countries=_parse_countries(only_countries),
+        risk_level=risk_level.value if risk_level else None,
+        score=score,
+        verbose=verbose,
+    )
+    cmd_blacklist(args, api_key)
+
+
+@app.command(rich_help_panel="Lookup")
 def check(
     # ── Input ────────────────────────────────────────────────────────────────
     from_file: Annotated[
@@ -132,14 +269,14 @@ def check(
         ),
     ] = None,
     max_age: Annotated[
-        int,
+        Optional[int],
         typer.Option(
             "--max-age",
             metavar="DAYS",
-            help=f"Only consider reports from the last N days (default: {DEFAULT_MAX_AGE_IN_DAYS}, max: 365).",
+            help=f"Only consider reports from the last N days (default: {DEFAULT_MAX_AGE_IN_DAYS} or from config, max: 365).",
             rich_help_panel="Input",
         ),
-    ] = DEFAULT_MAX_AGE_IN_DAYS,
+    ] = None,
     # ── Filters ───────────────────────────────────────────────────────────────
     country_code: Annotated[
         Optional[str],
@@ -203,14 +340,14 @@ def check(
     ] = None,
     # ── Cache ─────────────────────────────────────────────────────────────────
     cache_ttl: Annotated[
-        int,
+        Optional[int],
         typer.Option(
             "--cache-ttl",
             metavar="HOURS",
-            help=f"Cache TTL in hours (default: {DEFAULT_CACHE_TTL_HOURS}). Set 0 to disable.",
+            help=f"Cache TTL in hours (default: {DEFAULT_CACHE_TTL_HOURS} or from config). Set 0 to disable.",
             rich_help_panel="Cache",
         ),
-    ] = DEFAULT_CACHE_TTL_HOURS,
+    ] = None,
     no_cache: Annotated[
         bool,
         typer.Option(
@@ -266,17 +403,20 @@ def check(
 
     api_key = _resolve_api_key(token, verbose)
 
+    resolved_max_age = max_age if max_age is not None else config_get("max_age", DEFAULT_MAX_AGE_IN_DAYS)
+    resolved_cache_ttl = cache_ttl if cache_ttl is not None else config_get("cache_ttl", DEFAULT_CACHE_TTL_HOURS)
+
     args = SimpleNamespace(
         activity=activity,
-        cache_ttl=cache_ttl if cache_ttl > 0 else 0,
+        cache_ttl=resolved_cache_ttl if resolved_cache_ttl > 0 else 0,
         country_code=country_code,
         export=[f.value for f in export] if export else None,
         from_file=from_file,
         ips=_parse_ips(ips),
         is_not_tor=is_not_tor,
         is_tor=is_tor,
-        max_age=max_age,
-        no_cache=no_cache or cache_ttl == 0,
+        max_age=resolved_max_age,
+        no_cache=no_cache or resolved_cache_ttl == 0,
         remove_private=remove_private,
         remove_whitelisted=remove_whitelisted,
         risk_level=risk_level.value if risk_level else None,
@@ -286,7 +426,15 @@ def check(
     cmd_check(args, api_key)
 
 
-@app.command()
+# ── Reporting ─────────────────────────────────────────────────────────────────
+
+@app.command(rich_help_panel="Reporting")
+def categories():
+    """List all AbuseIPDB report category IDs and names."""
+    cmd_categories()
+
+
+@app.command(rich_help_panel="Reporting")
 def report(
     # ── Input ────────────────────────────────────────────────────────────────
     file_format: Annotated[
@@ -423,7 +571,101 @@ def report(
     cmd_report(args, api_key)
 
 
-@app.command()
+# ── Local ─────────────────────────────────────────────────────────────────────
+
+_LocationOption = Annotated[
+    Optional[str],
+    typer.Option(
+        "--location",
+        "-l",
+        metavar="FILE",
+        help="Cache file path (default: next to abusecli.py).",
+        rich_help_panel="Cache",
+    ),
+]
+
+_CacheTtlOption = Annotated[
+    int,
+    typer.Option(
+        "--cache-ttl",
+        metavar="HOURS",
+        help=f"TTL in hours for expiry calculation (default: {DEFAULT_CACHE_TTL_HOURS}).",
+        rich_help_panel="Cache",
+    ),
+]
+
+
+@cache_app.command("stats")
+def cache_stats(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    location: _LocationOption = None,
+):
+    """Show cache statistics: size, valid/expired counts, oldest and newest entry."""
+    cmd_cache_stats(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
+
+
+@cache_app.command("show")
+def cache_show(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    expired_only: Annotated[
+        bool,
+        typer.Option(
+            "--expired-only",
+            help="Show only expired entries.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    location: _LocationOption = None,
+    search: Annotated[
+        Optional[str],
+        typer.Option(
+            "--search",
+            "-s",
+            metavar="IP",
+            help="Filter entries whose IP contains this string.",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+):
+    """Dump cached entries as a table. Use --search to filter by IP."""
+    cmd_cache_show(
+        search=search,
+        expired_only=expired_only,
+        ttl_hours=cache_ttl,
+        path=_resolve_cache_path(location),
+    )
+
+
+@cache_app.command("clear")
+def cache_clear(
+    location: _LocationOption = None,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip confirmation prompt.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+):
+    """Delete all cached entries."""
+    cmd_cache_clear(yes=yes, path=_resolve_cache_path(location))
+
+
+@cache_app.command("clean")
+def cache_clean(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    location: _LocationOption = None,
+):
+    """Remove expired entries from the cache."""
+    cmd_cache_clean(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
+
+
+app.add_typer(cache_app, rich_help_panel="Local")
+
+
+@app.command(rich_help_panel="Local")
 def load(
     # ── Input ────────────────────────────────────────────────────────────────
     file_format: Annotated[
@@ -547,237 +789,6 @@ def load(
         verbose=verbose,
     )
     cmd_load(args)
-
-
-@app.command()
-def blacklist(
-    # ── Input ────────────────────────────────────────────────────────────────
-    confidence: Annotated[
-        int,
-        typer.Option(
-            "--confidence",
-            "-c",
-            metavar="N",
-            help="Minimum abuse confidence score (25–100). Scores below 100 require a premium account.",
-            rich_help_panel="Input",
-        ),
-    ] = DEFAULT_BLACKLIST_CONFIDENCE,
-    except_countries: Annotated[
-        Optional[str],
-        typer.Option(
-            "--except-countries",
-            metavar="CC,...",
-            help="Comma-separated country codes to exclude (server-side).",
-            rich_help_panel="Input",
-        ),
-    ] = None,
-    ip_version: Annotated[
-        Optional[int],
-        typer.Option(
-            "--ip-version",
-            metavar="4|6",
-            help="Filter by IP version (4 or 6).",
-            rich_help_panel="Input",
-        ),
-    ] = None,
-    limit: Annotated[
-        int,
-        typer.Option(
-            "--limit",
-            "-l",
-            metavar="N",
-            help=f"Maximum number of IPs to return (default: {DEFAULT_BLACKLIST_LIMIT}).",
-            rich_help_panel="Input",
-        ),
-    ] = DEFAULT_BLACKLIST_LIMIT,
-    only_countries: Annotated[
-        Optional[str],
-        typer.Option(
-            "--only-countries",
-            metavar="CC,...",
-            help="Comma-separated country codes to include (server-side).",
-            rich_help_panel="Input",
-        ),
-    ] = None,
-    # ── Filters ───────────────────────────────────────────────────────────────
-    country_code: Annotated[
-        Optional[str],
-        typer.Option(
-            "--country-code",
-            metavar="CC",
-            help="Keep only IPs matching this ISO country code (client-side).",
-            rich_help_panel="Filters",
-        ),
-    ] = None,
-    risk_level: Annotated[
-        Optional[RiskLevel],
-        typer.Option(
-            "--risk-level",
-            "-r",
-            metavar="LEVEL",
-            help="Keep only IPs at this risk level.",
-            rich_help_panel="Filters",
-        ),
-    ] = None,
-    score: Annotated[
-        Optional[int],
-        typer.Option(
-            "--score",
-            metavar="N",
-            help="Keep IPs with abuse score >= N (0–100).",
-            rich_help_panel="Filters",
-        ),
-    ] = None,
-    # ── Output ────────────────────────────────────────────────────────────────
-    export: Annotated[
-        Optional[list[ExportFormat]],
-        typer.Option(
-            "--export",
-            "-e",
-            metavar="FORMAT",
-            help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
-            rich_help_panel="Output",
-        ),
-    ] = None,
-    verbose: Annotated[
-        bool,
-        typer.Option(
-            "--verbose",
-            "-v",
-            help="Show filter trace, metadata, and API diagnostics.",
-            rich_help_panel="Output",
-        ),
-    ] = False,
-    # ── Auth ──────────────────────────────────────────────────────────────────
-    token: Annotated[
-        Optional[str],
-        typer.Option(
-            "--token",
-            metavar="KEY",
-            help="API key — overrides .env and environment variable.",
-            rich_help_panel="Auth",
-        ),
-    ] = None,
-):
-    """Download the AbuseIPDB blacklist of most-reported IPs."""
-    if ip_version is not None and ip_version not in (4, 6):
-        print_error("--ip-version must be 4 or 6")
-        raise typer.Exit(1)
-
-    if not (25 <= confidence <= 100):
-        print_error("--confidence must be between 25 and 100")
-        raise typer.Exit(1)
-
-    api_key = _resolve_api_key(token, verbose)
-
-    args = SimpleNamespace(
-        confidence=confidence,
-        country_code=country_code,
-        except_countries=_parse_countries(except_countries),
-        export=[f.value for f in export] if export else None,
-        ip_version=ip_version,
-        limit=limit,
-        only_countries=_parse_countries(only_countries),
-        risk_level=risk_level.value if risk_level else None,
-        score=score,
-        verbose=verbose,
-    )
-    cmd_blacklist(args, api_key)
-
-
-@app.command()
-def categories():
-    """List all AbuseIPDB report category IDs and names."""
-    cmd_categories()
-
-
-_LocationOption = Annotated[
-    Optional[str],
-    typer.Option(
-        "--location",
-        "-l",
-        metavar="FILE",
-        help="Cache file path (default: next to abusecli.py).",
-        rich_help_panel="Cache",
-    ),
-]
-
-_CacheTtlOption = Annotated[
-    int,
-    typer.Option(
-        "--cache-ttl",
-        metavar="HOURS",
-        help=f"TTL in hours for expiry calculation (default: {DEFAULT_CACHE_TTL_HOURS}).",
-        rich_help_panel="Cache",
-    ),
-]
-
-
-@cache_app.command("stats")
-def cache_stats(
-    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
-    location: _LocationOption = None,
-):
-    """Show cache statistics: size, valid/expired counts, oldest and newest entry."""
-    cmd_cache_stats(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
-
-
-@cache_app.command("show")
-def cache_show(
-    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
-    expired_only: Annotated[
-        bool,
-        typer.Option(
-            "--expired-only",
-            help="Show only expired entries.",
-            rich_help_panel="Filters",
-        ),
-    ] = False,
-    location: _LocationOption = None,
-    search: Annotated[
-        Optional[str],
-        typer.Option(
-            "--search",
-            "-s",
-            metavar="IP",
-            help="Filter entries whose IP contains this string.",
-            rich_help_panel="Filters",
-        ),
-    ] = None,
-):
-    """Dump cached entries as a table. Use --search to filter by IP."""
-    cmd_cache_show(
-        search=search,
-        expired_only=expired_only,
-        ttl_hours=cache_ttl,
-        path=_resolve_cache_path(location),
-    )
-
-
-@cache_app.command("clear")
-def cache_clear(
-    location: _LocationOption = None,
-    yes: Annotated[
-        bool,
-        typer.Option(
-            "--yes",
-            "-y",
-            help="Skip confirmation prompt.",
-            rich_help_panel="Behavior",
-        ),
-    ] = False,
-):
-    """Delete all cached entries."""
-    cmd_cache_clear(yes=yes, path=_resolve_cache_path(location))
-
-
-@cache_app.command("clean")
-def cache_clean(
-    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
-    location: _LocationOption = None,
-):
-    """Remove expired entries from the cache."""
-    cmd_cache_clean(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
 
 
 def main() -> None:
