@@ -1,3 +1,4 @@
+import ipaddress
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,7 +13,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from .api import check_ip, get_blacklist, report_ip
+from .api import check_ip, format_reset_time, get_blacklist, get_rate_limits, report_ip
 from .cache import get_cached, set_cached, CACHE_PATH
 from .data import apply_all_filters, reorder_columns
 from .io import (
@@ -38,6 +39,8 @@ from .constants import (
     DEFAULT_CACHE_TTL_HOURS,
     DEFAULT_MAX_AGE_IN_DAYS,
     DISPLAY_COLUMN_ORDER,
+    MAX_CIDR_EXPANSION,
+    RATE_LIMIT_WARNING_THRESHOLD,
     VALID_REPORT_CATEGORIES,
     ABUSE_CATEGORIES,
 )
@@ -83,6 +86,53 @@ def _load_ips_from_file(path: str) -> list[str]:
         return []
 
 
+def _expand_and_validate_ips(entries: list[str]) -> tuple[list[str], list[str]]:
+    valid: list[str] = []
+    invalid: list[str] = []
+
+    for entry in entries:
+        if "/" in entry:
+            try:
+                network = ipaddress.ip_network(entry, strict=False)
+                if network.num_addresses > MAX_CIDR_EXPANSION:
+                    print_error(
+                        f"{entry} expands to {network.num_addresses:,} addresses"
+                        f" — exceeds limit of {MAX_CIDR_EXPANSION:,}, skipped"
+                    )
+                    invalid.append(entry)
+                    continue
+                hosts = [str(ip) for ip in network.hosts()] or [str(network.network_address)]
+                canonical = str(network)
+                label = f" (interpreted as {canonical})" if canonical != entry else ""
+                print_info(f"CIDR {entry}{label} -> {len(hosts)} IP(s)")
+                valid.extend(hosts)
+            except ValueError:
+                invalid.append(entry)
+        else:
+            try:
+                ipaddress.ip_address(entry)
+                valid.append(entry)
+            except ValueError:
+                invalid.append(entry)
+
+    return valid, invalid
+
+
+def _show_rate_limit(endpoint: str, verbose: bool = False) -> None:
+    rl = get_rate_limits().get(endpoint)
+    if not rl or rl.get("remaining") is None:
+        return
+    remaining = rl["remaining"]
+    limit = rl["limit"]
+    reset = rl.get("reset")
+    reset_str = f" — resets in {format_reset_time(reset)}" if reset else ""
+    ratio = remaining / limit if limit > 0 else 1.0
+    if ratio <= RATE_LIMIT_WARNING_THRESHOLD:
+        print_warning(f"Rate limit ({endpoint}): {remaining}/{limit} remaining{reset_str}")
+    elif verbose:
+        print_info(f"Rate limit ({endpoint}): {remaining}/{limit} remaining{reset_str}")
+
+
 def _validate_categories(categories: list[int]) -> bool:
     invalid = [c for c in categories if c not in VALID_REPORT_CATEGORIES]
     if invalid:
@@ -116,8 +166,15 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                 print_info(f"Loaded {len(file_ips)} IP(s) from {from_file}")
             ips = list(dict.fromkeys(ips + file_ips))
 
+    ips, invalid = _expand_and_validate_ips(ips)
+    if invalid:
+        shown = ", ".join(invalid[:5])
+        suffix = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
+        print_error(f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}")
+    ips = list(dict.fromkeys(ips))
+
     if not ips:
-        print_error("No IP addresses to check")
+        print_error("No valid IP addresses to check")
         return None
 
     if verbose:
@@ -137,6 +194,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     success_count = 0
     error_count = 0
     cached_count = 0
+    rate_limit_warned = False
 
     with Progress(
         SpinnerColumn(),
@@ -192,6 +250,15 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                     success_count += 1
                     if not no_cache:
                         set_cached(ip, data)
+                    if not rate_limit_warned:
+                        rl = get_rate_limits().get("check", {})
+                        remaining = rl.get("remaining")
+                        limit = rl.get("limit", 1)
+                        if remaining is not None and limit > 0 and remaining / limit <= RATE_LIMIT_WARNING_THRESHOLD:
+                            rate_limit_warned = True
+                            reset = rl.get("reset")
+                            reset_str = f" — resets in {format_reset_time(reset)}" if reset else ""
+                            print_warning(f"Rate limit low (check): {remaining}/{limit} remaining{reset_str}")
                 else:
                     error_count += 1
 
@@ -209,6 +276,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
         print_info(
             f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache"
         )
+    _show_rate_limit("check", verbose)
 
     if not results:
         print_error("No valid data retrieved")
@@ -273,6 +341,17 @@ def cmd_report(args, api_key: str) -> None:
                 if verbose:
                     print_info(f"Loaded {len(file_ips)} IP(s) from {label}")
                 ips = list(dict.fromkeys(ips + file_ips))
+
+        ips, invalid = _expand_and_validate_ips(ips)
+        if invalid:
+            shown = ", ".join(invalid[:5])
+            suffix = f" (+{len(invalid) - 5} more)" if len(invalid) > 5 else ""
+            print_error(f"Skipping {len(invalid)} invalid entr{'y' if len(invalid) == 1 else 'ies'}: {shown}{suffix}")
+        ips = list(dict.fromkeys(ips))
+
+        if not ips:
+            print_error("No valid IP addresses to report")
+            return
         df = pd.DataFrame({"ipAddress": ips})
 
     if df.empty:
@@ -304,6 +383,7 @@ def cmd_report(args, api_key: str) -> None:
         comment=args.comment,
         verbose=verbose,
     )
+    _show_rate_limit("report", verbose)
 
 
 def _build_report_df_from_source(args, verbose: bool) -> pd.DataFrame | None:
@@ -416,6 +496,8 @@ def cmd_blacklist(args, api_key: str) -> pd.DataFrame | None:
             except_countries=except_countries,
             verbose=verbose,
         )
+
+    _show_rate_limit("blacklist", verbose)
 
     if not response:
         print_error("Failed to fetch blacklist")
