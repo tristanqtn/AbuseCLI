@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import requests
 
@@ -10,14 +11,63 @@ from .constants import (
     DEFAULT_BLACKLIST_LIMIT,
     DEFAULT_MAX_AGE_IN_DAYS,
 )
-from .display import print_success, print_error
+from .display import print_error, print_success
+
+_rate_limits: dict[str, dict] = {}
+
+
+def _extract_rate_limit(response: requests.Response, endpoint: str) -> None:
+    try:
+        limit = response.headers.get("X-RateLimit-Limit")
+        remaining = response.headers.get("X-RateLimit-Remaining")
+        reset = response.headers.get("X-RateLimit-Reset")
+        retry_after = response.headers.get("Retry-After")
+        if limit is not None:
+            _rate_limits[endpoint] = {
+                "limit": int(limit),
+                "remaining": int(remaining) if remaining is not None else None,
+                "reset": int(reset) if reset is not None else None,
+                "retry_after": int(retry_after) if retry_after is not None else None,
+            }
+    except (ValueError, AttributeError):
+        pass
+
+
+def get_rate_limits() -> dict[str, dict]:
+    return dict(_rate_limits)
+
+
+def format_reset_time(reset_epoch: int) -> str:
+    delta = int(reset_epoch - datetime.now().timestamp())
+    if delta <= 0:
+        return "reset imminent"
+    hours = delta // 3600
+    minutes = (delta % 3600) // 60
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def _format_retry_after(seconds: int) -> str:
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
 
 
 def handle_api_response(
     response: requests.Response,
     success_message: str = "Request completed",
     verbose: bool = False,
+    endpoint: str = "",
 ) -> dict | None:
+    if endpoint:
+        _extract_rate_limit(response, endpoint)
+
     try:
         response.raise_for_status()
         if verbose:
@@ -34,6 +84,13 @@ def handle_api_response(
             429: "Rate limit exceeded. Please wait before retrying.",
         }
         print_error(messages.get(status, f"HTTP error {status}"))
+
+        if status == 429 and endpoint:
+            rl = _rate_limits.get(endpoint, {})
+            if rl.get("retry_after"):
+                print_error(f"Retry after: {_format_retry_after(rl['retry_after'])}")
+            if rl.get("reset"):
+                print_error(f"Limit resets in: {format_reset_time(rl['reset'])}")
 
         try:
             error_details = response.json()
@@ -72,6 +129,7 @@ def get_blacklist(
             response=response,
             success_message="Blacklist retrieved",
             verbose=verbose,
+            endpoint="blacklist",
         )
     except requests.exceptions.RequestException as e:
         print_error(f"Error fetching blacklist: {e}")
@@ -93,6 +151,7 @@ def check_ip(
             response=response,
             success_message=f"{ip_address} verified",
             verbose=verbose,
+            endpoint="check",
         )
     except requests.exceptions.RequestException as e:
         print_error(f"Error querying {ip_address}: {e}")
@@ -119,6 +178,7 @@ def report_ip(
             response=response,
             success_message=f"{ip_address} reported",
             verbose=verbose,
+            endpoint="report",
         )
     except requests.exceptions.RequestException as e:
         print_error(f"Error reporting {ip_address}: {e}")
