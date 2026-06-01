@@ -12,6 +12,7 @@ from rich.progress import (
 )
 
 from .api import check_ip, report_ip
+from .cache import get_cached, set_cached
 from .data import apply_all_filters, reorder_columns
 from .io import (
     load_dataframe,
@@ -32,6 +33,7 @@ from .display import (
 )
 from .constants import (
     DEFAULT_MAX_AGE_IN_DAYS,
+    DEFAULT_CACHE_TTL_HOURS,
     VALID_REPORT_CATEGORIES,
     ABUSE_CATEGORIES,
     DISPLAY_COLUMN_ORDER,
@@ -93,6 +95,8 @@ def _validate_categories(categories: list[int]) -> bool:
 def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     verbose = getattr(args, "verbose", False)
     max_age = getattr(args, "max_age", DEFAULT_MAX_AGE_IN_DAYS)
+    cache_ttl = getattr(args, "cache_ttl", DEFAULT_CACHE_TTL_HOURS)
+    no_cache = getattr(args, "no_cache", False)
 
     ips = list(dict.fromkeys(getattr(args, "ips", None) or []))
 
@@ -119,19 +123,38 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     reports_by_ip: dict[str, list] = {}
     success_count = 0
     error_count = 0
+    cached_count = 0
 
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold]{task.description}"),
         BarColumn(),
         MofNCompleteColumn(),
-        TextColumn("[green]{task.fields[ok]}✓[/green]  [red]{task.fields[err]}✗[/red]"),
+        TextColumn(
+            "[green]{task.fields[ok]}✓[/green]"
+            "  [dim cyan]{task.fields[cached]}↺[/dim cyan]"
+            "  [red]{task.fields[err]}✗[/red]"
+        ),
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Checking IPs", total=len(ips), ok=0, err=0)
+        task = progress.add_task("Checking IPs", total=len(ips), ok=0, err=0, cached=0)
         for ip in ips:
             progress.update(task, description=ip)
+
+            if not no_cache:
+                cached_data = get_cached(ip, ttl_hours=cache_ttl)
+                if cached_data is not None:
+                    ip_reports = cached_data.get("reports", [])
+                    if ip_reports:
+                        reports_by_ip[ip] = ip_reports
+                    row = {k: v for k, v in cached_data.items() if k != "reports"}
+                    results.append(row)
+                    cached_count += 1
+                    success_count += 1
+                    progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
+                    continue
+
             try:
                 response = check_ip(
                     ip_address=ip,
@@ -145,13 +168,11 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                     ip_reports = data.get("reports", [])
                     if ip_reports:
                         reports_by_ip[ip] = ip_reports
-
-                    if verbose and data.get("reports") is not None:
-                        reports_by_ip.setdefault(ip, ip_reports)
-
                     row = {k: v for k, v in data.items() if k != "reports"}
                     results.append(row)
                     success_count += 1
+                    if not no_cache:
+                        set_cached(ip, data)
                 else:
                     error_count += 1
 
@@ -160,10 +181,11 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                 if verbose:
                     print_error(f"Error checking {ip}: {e}")
 
-            progress.update(task, advance=1, ok=success_count, err=error_count)
+            progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
 
     if verbose:
-        print_info(f"API calls: {success_count} ok, {error_count} failed")
+        api_calls = success_count - cached_count
+        print_info(f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache")
 
     if not results:
         print_error("No valid data retrieved")

@@ -7,7 +7,7 @@ from typing import Annotated
 
 from .auth import load_api_key
 from .commands import cmd_check, cmd_report, cmd_load, cmd_categories
-from .constants import DEFAULT_MAX_AGE_IN_DAYS
+from .constants import DEFAULT_MAX_AGE_IN_DAYS, DEFAULT_CACHE_TTL_HOURS
 from .display import print_banner, print_error
 
 
@@ -147,6 +147,18 @@ def check(
             help="Export results. Repeat for multiple formats (csv/json/excel/html/parquet).",
         ),
     ] = None,
+    cache_ttl: Annotated[
+        int,
+        typer.Option(
+            "--cache-ttl",
+            metavar="HOURS",
+            help=f"Cache TTL in hours (default: {DEFAULT_CACHE_TTL_HOURS}). Set 0 to disable.",
+        ),
+    ] = DEFAULT_CACHE_TTL_HOURS,
+    no_cache: Annotated[
+        bool,
+        typer.Option("--no-cache", help="Bypass cache and always query the API."),
+    ] = False,
     activity: Annotated[
         bool,
         typer.Option("--activity", "-a", help="Show recent report activity per IP."),
@@ -187,6 +199,8 @@ def check(
         remove_private=remove_private,
         remove_whitelisted=remove_whitelisted,
         export=[f.value for f in export] if export else None,
+        cache_ttl=cache_ttl if cache_ttl > 0 else 0,
+        no_cache=no_cache or cache_ttl == 0,
         activity=activity,
         verbose=verbose,
     )
