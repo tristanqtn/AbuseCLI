@@ -120,7 +120,9 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     if verbose:
         deduped = len(raw_ips) - len(ips)
         if deduped:
-            print_info(f"Deduplicated: {len(raw_ips)} → {len(ips)} unique IPs ({deduped} removed)")
+            print_info(
+                f"Deduplicated: {len(raw_ips)} → {len(ips)} unique IPs ({deduped} removed)"
+            )
         if no_cache:
             print_info("Cache disabled (--no-cache)")
         else:
@@ -160,7 +162,13 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                     results.append(row)
                     cached_count += 1
                     success_count += 1
-                    progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
+                    progress.update(
+                        task,
+                        advance=1,
+                        ok=success_count,
+                        err=error_count,
+                        cached=cached_count,
+                    )
                     continue
 
             try:
@@ -189,11 +197,15 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                 if verbose:
                     print_error(f"Error checking {ip}: {e}")
 
-            progress.update(task, advance=1, ok=success_count, err=error_count, cached=cached_count)
+            progress.update(
+                task, advance=1, ok=success_count, err=error_count, cached=cached_count
+            )
 
     if verbose:
         api_calls = success_count - cached_count
-        print_info(f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache")
+        print_info(
+            f"API calls: {api_calls} ok, {error_count} failed, {cached_count} from cache"
+        )
 
     if not results:
         print_error("No valid data retrieved")
@@ -219,7 +231,9 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     show_activity = getattr(args, "activity", False)
     if show_activity:
         active = {
-            ip: r for ip, r in reports_by_ip.items() if ip in set(df["ipAddress"].values)
+            ip: r
+            for ip, r in reports_by_ip.items()
+            if ip in set(df["ipAddress"].values)
         }
         if active:
             display_recent_activity(active)

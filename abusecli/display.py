@@ -13,7 +13,10 @@ console = Console()
 
 def print_banner() -> None:
     console.print(
-        Rule("[bold cyan]AbuseCLI[/bold cyan] - [dim]AbuseIPDB v2[/dim]", style="dim cyan")
+        Rule(
+            "[bold cyan]AbuseCLI[/bold cyan] - [dim]AbuseIPDB v2[/dim]",
+            style="dim cyan",
+        )
     )
 
 
@@ -139,10 +142,10 @@ def display_results(df: pd.DataFrame, verbose: bool = False) -> None:
 
     if "countryCode" in df.columns:
         unique_countries = df["countryCode"].nunique()
-        country_list = ", ".join(
-            sorted(df["countryCode"].dropna().unique().tolist())
+        country_list = ", ".join(sorted(df["countryCode"].dropna().unique().tolist()))
+        summary_lines.append(
+            f"[bold]Countries:[/bold]  {unique_countries}  [dim]{country_list}[/dim]"
         )
-        summary_lines.append(f"[bold]Countries:[/bold]  {unique_countries}  [dim]{country_list}[/dim]")
 
     if "isTor" in df.columns:
         tor_count = int(df["isTor"].sum())
