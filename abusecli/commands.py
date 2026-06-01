@@ -14,7 +14,15 @@ from rich.progress import (
 )
 
 from .api import check_ip, format_reset_time, get_blacklist, get_rate_limits, report_ip
-from .cache import get_cached, set_cached, CACHE_PATH
+from .cache import (
+    clean_cache,
+    clear_cache,
+    get_all_entries,
+    get_cache_stats,
+    get_cached,
+    set_cached,
+    CACHE_PATH,
+)
 from .data import apply_all_filters, reorder_columns
 from .io import (
     load_dataframe,
@@ -25,13 +33,16 @@ from .io import (
 )
 from .display import (
     console,
-    print_success,
-    print_error,
-    print_info,
-    display_results,
+    display_cache_stats,
+    display_cache_table,
     display_recent_activity,
     display_report_confirmation,
+    display_results,
     display_verbose_report,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
 )
 from .constants import (
     DEFAULT_BLACKLIST_CONFIDENCE,
@@ -536,6 +547,55 @@ def cmd_blacklist(args, api_key: str) -> pd.DataFrame | None:
     display_results(df, verbose=verbose)
     _run_export(df, args, "blacklist")
     return df
+
+
+def cmd_cache_stats(ttl_hours: int, path: Path) -> None:
+    stats = get_cache_stats(ttl_hours=ttl_hours, path=path)
+    display_cache_stats(stats)
+
+
+def cmd_cache_show(
+    search: str | None,
+    expired_only: bool,
+    ttl_hours: int,
+    path: Path,
+) -> None:
+    entries = get_all_entries(path=path)
+    if not entries:
+        print_info(f"Cache is empty ({path})")
+        return
+    display_cache_table(entries, ttl_hours=ttl_hours, search=search, expired_only=expired_only)
+
+
+def cmd_cache_clear(yes: bool, path: Path) -> None:
+    entries = get_all_entries(path=path)
+    if not entries:
+        print_info(f"Cache is already empty ({path})")
+        return
+    if not yes:
+        try:
+            answer = input(
+                f"Delete all {len(entries)} cached IP(s) from {path}? [y/N] "
+            ).strip().lower()
+        except KeyboardInterrupt:
+            print_error("\nAborted.")
+            return
+        if answer not in ("y", "yes"):
+            print_info("Aborted.")
+            return
+    count = clear_cache(path=path)
+    print_success(f"Cleared {count} cached IP(s)")
+
+
+def cmd_cache_clean(ttl_hours: int, path: Path) -> None:
+    count = clean_cache(ttl_hours=ttl_hours, path=path)
+    if count:
+        print_success(
+            f"Removed {count} expired entr{'y' if count == 1 else 'ies'} "
+            f"(TTL: {ttl_hours}h)"
+        )
+    else:
+        print_info("No expired entries to remove")
 
 
 def cmd_categories() -> None:

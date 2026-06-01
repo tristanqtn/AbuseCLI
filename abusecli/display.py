@@ -332,3 +332,125 @@ def display_verbose_report(ip: str, report_data: dict) -> None:
             expand=False,
         )
     )
+
+
+def display_cache_stats(stats: dict) -> None:
+    if stats["total"] == 0:
+        print_info("Cache is empty")
+        return
+
+    size = stats["size_bytes"]
+    if size >= 1024 * 1024:
+        size_str = f"{size / 1024 / 1024:.1f} MB"
+    elif size >= 1024:
+        size_str = f"{size / 1024:.1f} KB"
+    else:
+        size_str = f"{size} B"
+
+    lines = [
+        f"[bold]Path:[/bold]       {stats['path']}",
+        f"[bold]Total:[/bold]      {stats['total']} entries",
+        f"[bold]Valid:[/bold]      [green]{stats['valid']}[/green]",
+        f"[bold]Expired:[/bold]    [red]{stats['expired']}[/red]  (TTL: {stats['ttl_hours']}h)",
+        f"[bold]File size:[/bold]  {size_str}",
+    ]
+    if stats["oldest"]:
+        lines.append(f"[bold]Oldest:[/bold]     {stats['oldest'].strftime('%Y-%m-%d %H:%M:%S')}")
+    if stats["newest"]:
+        lines.append(f"[bold]Newest:[/bold]     {stats['newest'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+    console.print()
+    console.print(
+        Panel("\n".join(lines), title="Cache Stats", border_style="cyan", expand=False)
+    )
+    console.print()
+
+
+def display_cache_table(
+    entries: dict,
+    ttl_hours: int,
+    search: str | None = None,
+    expired_only: bool = False,
+) -> None:
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+
+    def _risk_level(score: int) -> str:
+        if score >= RISK_CRITICAL_MIN:
+            return "critical"
+        if score >= RISK_HIGH_MIN:
+            return "high"
+        if score >= RISK_MEDIUM_MIN:
+            return "medium"
+        return "low"
+
+    table = Table(
+        show_lines=True,
+        header_style="bold cyan",
+        border_style="dim",
+    )
+    table.add_column("IP Address", style="bold white", no_wrap=True)
+    table.add_column("Risk", justify="center")
+    table.add_column("Score", justify="center", min_width=20)
+    table.add_column("Country", justify="center")
+    table.add_column("ISP", max_width=24)
+    table.add_column("Reports", justify="right")
+    table.add_column("Cached At", justify="center", no_wrap=True)
+    table.add_column("Status", justify="center")
+
+    shown = 0
+    for ip, entry in entries.items():
+        if search and search.lower() not in ip.lower():
+            continue
+
+        data = entry.get("data", {})
+        timestamp_str = entry.get("timestamp", "")
+
+        try:
+            cached_at = datetime.fromisoformat(timestamp_str)
+            is_expired = now - cached_at >= timedelta(hours=ttl_hours)
+            age_str = cached_at.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            is_expired = True
+            age_str = "unknown"
+
+        if expired_only and not is_expired:
+            continue
+
+        score = int(data.get("abuseConfidenceScore", 0))
+        risk = _risk_level(score)
+        risk_color = RISK_COLORS.get(risk, "white")
+        country = str(data.get("countryCode") or "N/A")
+        isp = str(data.get("isp") or "")
+        reports = int(data.get("totalReports", 0))
+
+        report_text = Text(str(reports))
+        if reports > 100:
+            report_text.stylize("bold red")
+        elif reports > 10:
+            report_text.stylize("dark_orange")
+
+        status = Text("expired", style="dim red") if is_expired else Text("valid", style="green")
+
+        table.add_row(
+            ip,
+            Text(risk.upper(), style=f"bold {risk_color}"),
+            build_score_bar(score),
+            country,
+            isp,
+            report_text,
+            age_str,
+            status,
+        )
+        shown += 1
+
+    if shown == 0:
+        print_info("No cache entries match the criteria")
+        return
+
+    label = f" matching '{search}'" if search else ""
+    table.title = f"Cache — {shown} entr{'y' if shown == 1 else 'ies'}{label}"
+    console.print()
+    console.print(table)
+    console.print()

@@ -6,7 +6,18 @@ import typer
 from typing import Annotated
 
 from .auth import load_api_key
-from .commands import cmd_blacklist, cmd_check, cmd_report, cmd_load, cmd_categories
+from .cache import CACHE_PATH
+from .commands import (
+    cmd_blacklist,
+    cmd_cache_clean,
+    cmd_cache_clear,
+    cmd_cache_show,
+    cmd_cache_stats,
+    cmd_categories,
+    cmd_check,
+    cmd_load,
+    cmd_report,
+)
 from .constants import (
     DEFAULT_BLACKLIST_CONFIDENCE,
     DEFAULT_BLACKLIST_LIMIT,
@@ -48,9 +59,24 @@ app = typer.Typer(
 )
 
 
+cache_app = typer.Typer(
+    name="cache",
+    help="Inspect and manage the local IP cache.",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+    add_completion=False,
+)
+app.add_typer(cache_app)
+
+
 @app.callback()
 def _app_callback() -> None:
     print_banner()
+
+
+def _resolve_cache_path(location: Optional[str]):
+    from pathlib import Path as _Path
+    return _Path(location) if location else CACHE_PATH
 
 
 def _parse_countries(value: Optional[str]) -> list[str] | None:
@@ -663,6 +689,95 @@ def blacklist(
 def categories():
     """List all AbuseIPDB report category IDs and names."""
     cmd_categories()
+
+
+_LocationOption = Annotated[
+    Optional[str],
+    typer.Option(
+        "--location",
+        "-l",
+        metavar="FILE",
+        help="Cache file path (default: next to abusecli.py).",
+        rich_help_panel="Cache",
+    ),
+]
+
+_CacheTtlOption = Annotated[
+    int,
+    typer.Option(
+        "--cache-ttl",
+        metavar="HOURS",
+        help=f"TTL in hours for expiry calculation (default: {DEFAULT_CACHE_TTL_HOURS}).",
+        rich_help_panel="Cache",
+    ),
+]
+
+
+@cache_app.command("stats")
+def cache_stats(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    location: _LocationOption = None,
+):
+    """Show cache statistics: size, valid/expired counts, oldest and newest entry."""
+    cmd_cache_stats(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
+
+
+@cache_app.command("show")
+def cache_show(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    expired_only: Annotated[
+        bool,
+        typer.Option(
+            "--expired-only",
+            help="Show only expired entries.",
+            rich_help_panel="Filters",
+        ),
+    ] = False,
+    location: _LocationOption = None,
+    search: Annotated[
+        Optional[str],
+        typer.Option(
+            "--search",
+            "-s",
+            metavar="IP",
+            help="Filter entries whose IP contains this string.",
+            rich_help_panel="Filters",
+        ),
+    ] = None,
+):
+    """Dump cached entries as a table. Use --search to filter by IP."""
+    cmd_cache_show(
+        search=search,
+        expired_only=expired_only,
+        ttl_hours=cache_ttl,
+        path=_resolve_cache_path(location),
+    )
+
+
+@cache_app.command("clear")
+def cache_clear(
+    location: _LocationOption = None,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip confirmation prompt.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+):
+    """Delete all cached entries."""
+    cmd_cache_clear(yes=yes, path=_resolve_cache_path(location))
+
+
+@cache_app.command("clean")
+def cache_clean(
+    cache_ttl: _CacheTtlOption = DEFAULT_CACHE_TTL_HOURS,
+    location: _LocationOption = None,
+):
+    """Remove expired entries from the cache."""
+    cmd_cache_clean(ttl_hours=cache_ttl, path=_resolve_cache_path(location))
 
 
 def main() -> None:
