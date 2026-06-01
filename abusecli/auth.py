@@ -38,7 +38,9 @@ def load_api_key(args) -> str:
 
         save_choice = input("Save this key to .env? (y/N): ").lower()
         if save_choice in ("y", "yes"):
-            save_api_key_to_env(api_key=api_key, verbose=getattr(args, "verbose", False))
+            save_api_key_to_env(
+                api_key=api_key, verbose=getattr(args, "verbose", False)
+            )
             print_info("API key saved to .env")
 
     if not api_key:

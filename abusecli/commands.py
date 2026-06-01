@@ -2,7 +2,14 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from tqdm import tqdm
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from .api import check_ip, report_ip
 from .data import apply_all_filters, reorder_columns
@@ -14,6 +21,7 @@ from .io import (
     export_dataframe,
 )
 from .display import (
+    console,
     print_success,
     print_error,
     print_info,
@@ -112,9 +120,18 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
     success_count = 0
     error_count = 0
 
-    with tqdm(ips, desc="Checking IPs", unit="ip", colour="green") as pbar:
-        for ip in pbar:
-            pbar.set_description(f"Checking {ip}")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[green]{task.fields[ok]}✓[/green]  [red]{task.fields[err]}✗[/red]"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Checking IPs", total=len(ips), ok=0, err=0)
+        for ip in ips:
+            progress.update(task, description=ip)
             try:
                 response = check_ip(
                     ip_address=ip,
@@ -143,7 +160,7 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
                 if verbose:
                     print_error(f"Error checking {ip}: {e}")
 
-            pbar.set_postfix(ok=success_count, err=error_count)
+            progress.update(task, advance=1, ok=success_count, err=error_count)
 
     if verbose:
         print_info(f"API calls: {success_count} ok, {error_count} failed")
@@ -169,7 +186,9 @@ def cmd_check(args, api_key: str) -> pd.DataFrame | None:
 
     display_results(df)
 
-    active = {ip: r for ip, r in reports_by_ip.items() if ip in set(df["ipAddress"].values)}
+    active = {
+        ip: r for ip, r in reports_by_ip.items() if ip in set(df["ipAddress"].values)
+    }
     if active:
         display_recent_activity(active)
 
@@ -249,12 +268,16 @@ def _build_report_df_from_source(args, verbose: bool) -> pd.DataFrame | None:
     min_score = getattr(args, "min_score", None)
     if min_score is not None:
         if "abuseConfidenceScore" not in df.columns:
-            print_error("--min-score requires an 'abuseConfidenceScore' column in the source file")
+            print_error(
+                "--min-score requires an 'abuseConfidenceScore' column in the source file"
+            )
             return None
         before = len(df)
         df = df[df["abuseConfidenceScore"] >= min_score]
         if verbose:
-            print_info(f"--min-score {min_score}: {before - len(df)} IP(s) removed, {len(df)} remaining")
+            print_info(
+                f"--min-score {min_score}: {before - len(df)} IP(s) removed, {len(df)} remaining"
+            )
 
     if df.empty:
         print_error("No IPs remain after applying --min-score filter")
@@ -264,6 +287,7 @@ def _build_report_df_from_source(args, verbose: bool) -> pd.DataFrame | None:
         df["abuseConfidenceScore"] = 0
 
     from .data import add_risk_level_column
+
     df = add_risk_level_column(df, verbose=verbose)
 
     return df
@@ -279,9 +303,18 @@ def _execute_reports(
     success_count = 0
     error_count = 0
 
-    with tqdm(ips, desc="Reporting IPs", unit="ip", colour="red") as pbar:
-        for ip in pbar:
-            pbar.set_description(f"Reporting {ip}")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[green]{task.fields[ok]}✓[/green]  [red]{task.fields[err]}✗[/red]"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Reporting IPs", total=len(ips), ok=0, err=0)
+        for ip in ips:
+            progress.update(task, description=ip)
             try:
                 response = report_ip(
                     ip_address=ip,
@@ -299,7 +332,7 @@ def _execute_reports(
                 if verbose:
                     print_error(f"Error reporting {ip}: {e}")
 
-            pbar.set_postfix(ok=success_count, err=error_count)
+            progress.update(task, advance=1, ok=success_count, err=error_count)
 
     if success_count:
         print_success(f"Reported {success_count} IP(s) successfully")

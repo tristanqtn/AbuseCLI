@@ -24,7 +24,8 @@ class _Formatter(argparse.RawDescriptionHelpFormatter):
 def _add_filter_arguments(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group("filters")
     g.add_argument(
-        "--risk-level", "-r",
+        "--risk-level",
+        "-r",
         choices=["critical", "high", "medium", "low"],
         metavar="LEVEL",
         help="critical (>=75)  high (>=50)  medium (>=25)  low (<25)",
@@ -65,7 +66,8 @@ def _add_filter_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_export_argument(parser: argparse.ArgumentParser) -> None:
     g = parser.add_argument_group("output")
     g.add_argument(
-        "--export", "-e",
+        "--export",
+        "-e",
         nargs="+",
         choices=EXPORT_FORMATS,
         metavar="FORMAT",
@@ -79,7 +81,8 @@ def _add_export_argument(parser: argparse.ArgumentParser) -> None:
 
 def _add_verbose_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="show per-IP detail, filter trace, and API diagnostics",
     )
@@ -223,8 +226,10 @@ def _build_report_parser(subparsers) -> None:
             API call is made.
 
             AbuseIPDB category reference:
-        """) + CATEGORY_TABLE + "\n\n"
-          + "    Full list: https://www.abuseipdb.com/categories",
+        """)
+        + CATEGORY_TABLE
+        + "\n\n"
+        + "    Full list: https://www.abuseipdb.com/categories",
         epilog=textwrap.dedent("""\
             examples:
               abusecli.py report --ips 1.2.3.4 --categories 18
@@ -252,12 +257,14 @@ def _build_report_parser(subparsers) -> None:
         help="plain-text file with one IP per line (# lines ignored), or - for stdin",
     )
     g.add_argument(
-        "--source", "-s",
+        "--source",
+        "-s",
         metavar="FILE",
         help="load IPs from a previous check/load export (CSV, JSON, Excel, Parquet) — exclusive with --ips/--from-file",
     )
     g.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         choices=["csv", "json", "excel", "parquet", "auto"],
         default="auto",
         metavar="FORMAT",
@@ -333,13 +340,15 @@ def _build_load_parser(subparsers) -> None:
 
     g = p.add_argument_group("input")
     g.add_argument(
-        "--source", "-s",
+        "--source",
+        "-s",
         required=True,
         metavar="FILE",
         help="source file to load",
     )
     g.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         choices=["csv", "json", "excel", "parquet", "auto"],
         default="auto",
         metavar="FORMAT",

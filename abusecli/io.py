@@ -26,7 +26,9 @@ def load_dataframe(
 
         if not file_format:
             print_error(f"Cannot auto-detect format for: {file_path}")
-            print_info(f"Supported extensions: {', '.join(IMPORT_EXTENSION_MAP.keys())}")
+            print_info(
+                f"Supported extensions: {', '.join(IMPORT_EXTENSION_MAP.keys())}"
+            )
             return None
 
         if verbose:
@@ -99,7 +101,9 @@ def validate_report_source(df: pd.DataFrame, verbose: bool = False) -> bool:
     if verbose:
         print_success("Column 'ipAddress' found")
         if "abuseConfidenceScore" not in df.columns:
-            print_warning("No 'abuseConfidenceScore' column — --min-score filter will be skipped")
+            print_warning(
+                "No 'abuseConfidenceScore' column — --min-score filter will be skipped"
+            )
     return True
 
 
@@ -128,7 +132,9 @@ def export_dataframe(
 
             writers = {
                 "csv": lambda: df.to_csv(filename, index=False),
-                "json": lambda: df.to_json(filename, orient="records", indent=2, date_format="iso"),
+                "json": lambda: df.to_json(
+                    filename, orient="records", indent=2, date_format="iso"
+                ),
                 "excel": lambda: df.to_excel(filename, index=False, engine="openpyxl"),
                 "html": lambda: df.to_html(
                     filename,

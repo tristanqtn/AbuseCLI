@@ -10,20 +10,27 @@ from .constants import RISK_COLORS, RISK_CRITICAL_MIN, RISK_HIGH_MIN, RISK_MEDIU
 console = Console()
 
 
+def _status(prefix: str, style: str, message: str) -> None:
+    t = Text()
+    t.append(f"[{prefix}]", style=f"bold {style}")
+    t.append(f" {message}")
+    console.print(t)
+
+
 def print_success(message: str) -> None:
-    print(f"\033[92m[+]\033[0m {message}")
+    _status("+", "green", message)
 
 
 def print_error(message: str) -> None:
-    print(f"\033[91m[!]\033[0m {message}")
+    _status("!", "red", message)
 
 
 def print_info(message: str) -> None:
-    print(f"\033[94m[i]\033[0m {message}")
+    _status("i", "blue", message)
 
 
 def print_warning(message: str) -> None:
-    print(f"\033[93m[~]\033[0m {message}")
+    _status("~", "yellow", message)
 
 
 def build_score_bar(score: int, width: int = 15) -> Text:
@@ -105,7 +112,9 @@ def display_results(df: pd.DataFrame) -> None:
     console.print(table)
 
     total = len(df)
-    risk_counts = df["risk_level"].value_counts() if "risk_level" in df.columns else pd.Series()
+    risk_counts = (
+        df["risk_level"].value_counts() if "risk_level" in df.columns else pd.Series()
+    )
 
     summary_lines = [f"[bold]Total IPs:[/bold]  {total}"]
 
@@ -135,7 +144,11 @@ def display_results(df: pd.DataFrame) -> None:
             summary_lines.append(f"[dim]Never reported:  {never_reported}[/dim]")
 
     console.print()
-    console.print(Panel("\n".join(summary_lines), title="Summary", border_style="cyan", expand=False))
+    console.print(
+        Panel(
+            "\n".join(summary_lines), title="Summary", border_style="cyan", expand=False
+        )
+    )
     console.print()
 
 
@@ -219,7 +232,12 @@ def display_report_confirmation(
 
     console.print()
     console.print(
-        Panel("\n".join(summary_lines), title="Report summary", border_style="yellow", expand=False)
+        Panel(
+            "\n".join(summary_lines),
+            title="Report summary",
+            border_style="yellow",
+            expand=False,
+        )
     )
     console.print()
 
@@ -246,7 +264,9 @@ def display_verbose_report(ip: str, report_data: dict) -> None:
     meta = {
         "IP": report_data.get("ipAddress", ip),
         "Domain": report_data.get("domain", "N/A"),
-        "Hostname": report_data.get("hostnames", ["N/A"])[0] if report_data.get("hostnames") else "N/A",
+        "Hostname": report_data.get("hostnames", ["N/A"])[0]
+        if report_data.get("hostnames")
+        else "N/A",
         "ISP": report_data.get("isp", "N/A"),
         "Usage Type": report_data.get("usageType", "N/A"),
         "Country": report_data.get("countryCode", "N/A"),

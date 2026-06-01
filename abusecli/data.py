@@ -99,7 +99,7 @@ def filter_tor(
     if is_tor:
         if verbose:
             print_info("Keeping only TOR addresses")
-        result = df[df["isTor"] == True]
+        result = df[df["isTor"]]
         if result.empty:
             print_warning("No TOR addresses found")
         elif verbose:
@@ -109,7 +109,7 @@ def filter_tor(
     if is_not_tor:
         if verbose:
             print_info("Removing TOR addresses")
-        result = df[df["isTor"] == False]
+        result = df[~df["isTor"]]
         if result.empty:
             print_warning("No non-TOR addresses found")
         elif verbose:
@@ -128,7 +128,7 @@ def filter_remove_private(
     if verbose:
         print_info("Removing private addresses")
 
-    result = df[df["isPublic"] == True]
+    result = df[df["isPublic"]]
 
     if result.empty:
         print_warning("No public addresses found")
@@ -147,7 +147,7 @@ def filter_remove_whitelisted(
     if verbose:
         print_info("Removing whitelisted addresses")
 
-    result = df[df["isWhitelisted"] == False]
+    result = df[~df["isWhitelisted"]]
 
     if result.empty:
         print_warning("No non-whitelisted addresses found")
@@ -169,15 +169,21 @@ def apply_all_filters(df: pd.DataFrame, args) -> pd.DataFrame:
     df = add_risk_level_column(df, verbose=verbose)
     df = filter_by_risk_level(df, getattr(args, "risk_level", None), verbose=verbose)
     df = filter_by_score(df, getattr(args, "score", None), verbose=verbose)
-    df = filter_by_country_code(df, getattr(args, "country_code", None), verbose=verbose)
+    df = filter_by_country_code(
+        df, getattr(args, "country_code", None), verbose=verbose
+    )
     df = filter_tor(
         df,
         getattr(args, "is_tor", False),
         getattr(args, "is_not_tor", False),
         verbose=verbose,
     )
-    df = filter_remove_private(df, getattr(args, "remove_private", False), verbose=verbose)
-    df = filter_remove_whitelisted(df, getattr(args, "remove_whitelisted", False), verbose=verbose)
+    df = filter_remove_private(
+        df, getattr(args, "remove_private", False), verbose=verbose
+    )
+    df = filter_remove_whitelisted(
+        df, getattr(args, "remove_whitelisted", False), verbose=verbose
+    )
 
     if verbose:
         print_success(f"Final result: {len(df)} IPs after filtering")

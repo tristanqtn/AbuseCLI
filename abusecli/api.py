@@ -2,7 +2,11 @@ import json
 
 import requests
 
-from .constants import ABUSEIPDB_CHECK_URL, ABUSEIPDB_REPORT_URL, DEFAULT_MAX_AGE_IN_DAYS
+from .constants import (
+    ABUSEIPDB_CHECK_URL,
+    ABUSEIPDB_REPORT_URL,
+    DEFAULT_MAX_AGE_IN_DAYS,
+)
 from .display import print_success, print_error
 
 
